@@ -279,3 +279,35 @@ export function getRoadCenterY(x: number): number {
 export function getRoadHalfWidth(x: number): number {
   return 68 + Math.sin(x * 0.007 + 1.1) * 9 + Math.cos(x * 0.0031) * 6;
 }
+
+export const SECTOR_LENGTH = 3100;
+
+export const SECTOR_NAMES = [
+  'VANGUARD OUTPOST',
+  'IRON GARRISON',
+  'WARLORD\'S BASTION',
+  'CITADEL OF ASH',
+  'ROYAL FORTRESS',
+  'SHADOW STRONGHOLD',
+  'DREAD CITADEL',
+  'IMPERIAL REDOUBT',
+];
+
+export function toRoman(num: number): string {
+  const romans: [number, string][] = [
+    [10, 'X'],
+    [9, 'IX'],
+    [5, 'V'],
+    [4, 'IV'],
+    [1, 'I'],
+  ];
+  let res = '';
+  for (const [v, s] of romans) {
+    while (num >= v) {
+      res += s;
+      num -= v;
+    }
+  }
+  return res || 'I';
+}
+

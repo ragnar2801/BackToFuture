@@ -11,6 +11,8 @@ import {
   PLAYABLE_Y_MIN,
   PLAYER_MAX_HP,
   PLAYER_SPEED,
+  SECTOR_LENGTH,
+  SECTOR_NAMES,
   TANK_INTERACT_RADIUS,
   TANK_MAX_HP,
   TANK_SPEED,
@@ -20,11 +22,14 @@ import {
   WORLD_WIDTH,
   getRoadCenterY,
   getRoadHalfWidth,
+  toRoman,
 } from './constants';
 import { GameRenderer, type RenderState } from './renderer';
 import type {
+  BarracksState,
   CampState,
   CloudProp,
+  ConqueredBase,
   CorpseProp,
   Faction,
   FloatingText,
@@ -107,10 +112,14 @@ export class GameEngine {
   private canvasTouchId: number | null = null;
   private resizeTimers: number[] = [];
 
-  // World entities
+  // World entities & Sector Progression
   private player!: PlayerState;
   private alliedCamp!: CampState;
-  private enemyCampFlagPhase = 1.4;
+  private sector = 1;
+  private barracksConquered = 0;
+  private worldWidth = WORLD_WIDTH;
+  private enemyBarracks: BarracksState | null = null;
+  private conqueredBases: ConqueredBase[] = [];
   private tanks: TankEntity[] = [];
   private soldiers: SoldierEntity[] = [];
   private projectiles: ProjectileEntity[] = [];
@@ -308,9 +317,15 @@ export class GameEngine {
       });
     }
 
-    // Scattered grass tufts, rocks, pebbles, dirt patches across battlefield
-    for (let i = 0; i < 290; i++) {
-      const x = 60 + rand() * (WORLD_WIDTH - 120);
+    this.generateSceneryForRange(60, this.worldWidth - 60, 290);
+  }
+
+  private generateSceneryForRange(minX: number, maxX: number, count = 280): void {
+    const seed = Math.floor(Math.abs(minX * 17 + maxX * 31)) || 19851345;
+    const rand = seededRandom(seed);
+
+    for (let i = 0; i < count; i++) {
+      const x = minX + rand() * (maxX - minX);
       const y = PLAYABLE_Y_MIN - 26 + rand() * (LOGICAL_HEIGHT - PLAYABLE_Y_MIN + 10);
       const roadY = getRoadCenterY(x);
       const roadHW = getRoadHalfWidth(x);
@@ -323,7 +338,7 @@ export class GameEngine {
             y,
             kind: 'pebbles',
             scale: 0.7 + rand() * 0.5,
-            variant: i,
+            variant: (this.scenery.length + i) % 8,
           });
         }
         continue;
@@ -337,7 +352,7 @@ export class GameEngine {
         y,
         kind,
         scale: 0.72 + rand() * 0.65,
-        variant: i,
+        variant: (this.scenery.length + i) % 8,
       });
     }
 
@@ -384,6 +399,11 @@ export class GameEngine {
       roadkills: 0,
     };
 
+    this.sector = 1;
+    this.barracksConquered = 0;
+    this.worldWidth = WORLD_WIDTH;
+    this.conqueredBases = [];
+
     this.alliedCamp = {
       x: ALLIED_CAMP_X,
       y: ALLIED_CAMP_Y,
@@ -391,6 +411,21 @@ export class GameEngine {
       maxHp: ALLIED_CAMP_MAX_HP,
       hitFlash: 0,
       flagPhase: 0,
+    };
+
+    this.enemyBarracks = {
+      id: this.nextId++,
+      sector: 1,
+      name: `BARRACKS I: ${SECTOR_NAMES[0]}`,
+      x: ENEMY_CAMP_X,
+      y: getRoadCenterY(ENEMY_CAMP_X) - 4,
+      hp: 1400,
+      maxHp: 1400,
+      hitFlash: 0,
+      flagPhase: 1.4,
+      faction: 'enemy',
+      destroyed: false,
+      collapseTimer: 0,
     };
 
     const startX = 435;
@@ -701,7 +736,7 @@ export class GameEngine {
 
     // Keep camera inside world bounds cleanly across orientation changes
     if (this.player) {
-      this.cameraX = Math.max(0, Math.min(WORLD_WIDTH - this.viewW, this.cameraX));
+      this.cameraX = Math.max(0, Math.min(this.worldWidth - this.viewW, this.cameraX));
     }
   }
 
@@ -811,7 +846,7 @@ export class GameEngine {
 
       // Wave milestone reward: camp field repairs + allied rally squad!
       this.alliedCamp.hp = Math.min(this.alliedCamp.maxHp, this.alliedCamp.hp + 120);
-      this.spawnFloatingText(ALLIED_CAMP_X + 40, ALLIED_CAMP_Y - 120, 'REINFORCEMENTS!', '#66b5ff', 16);
+      this.spawnFloatingText(this.alliedCamp.x + 40, this.alliedCamp.y - 120, 'REINFORCEMENTS!', '#66b5ff', 16);
 
       const rallyCount = Math.min(5, 2 + Math.floor(this.wave / 2));
       for (let i = 0; i < rallyCount; i++) {
@@ -826,8 +861,8 @@ export class GameEngine {
         this.spawnSoldier(
           'ally',
           allyKind,
-          ALLIED_CAMP_X + 40 + i * 28,
-          getRoadCenterY(ALLIED_CAMP_X + 60) + (Math.random() - 0.5) * 120
+          this.alliedCamp.x + 40 + i * 28,
+          getRoadCenterY(this.alliedCamp.x + 60) + (Math.random() - 0.5) * 120
         );
       }
 
@@ -835,11 +870,13 @@ export class GameEngine {
       this.dropParachuteCrate();
     }
 
+    const enemyCampLimitX = this.enemyBarracks ? this.enemyBarracks.x : this.worldWidth - 100;
+
     // Spawn Boss / Siege Ram once per wave starting Wave 6+
     if (this.wave >= 6 && this.bossSpawnedForWave < this.wave && this.waveElapsed > 6) {
       this.bossSpawnedForWave = this.wave;
       const bossKind: UnitKind = this.wave % 2 === 0 ? 'siege_ram' : 'warlord';
-      const spawnX = Math.min(ENEMY_CAMP_X - 40, Math.max(this.cameraX + this.viewW + 120, 1750));
+      const spawnX = Math.min(enemyCampLimitX - 40, Math.max(this.cameraX + this.viewW + 120, this.alliedCamp.x + 1200));
       this.spawnSoldier('enemy', bossKind, spawnX, getRoadCenterY(spawnX));
       this.sound.playWaveHorn();
       this.showToast(
@@ -858,12 +895,12 @@ export class GameEngine {
 
       // Spawn a small squad of 1..3 enemies
       const squadSize = Math.min(4, 1 + Math.floor((this.wave + Math.random() * 2) / 2.2));
-      const minSpawnX = Math.min(ENEMY_CAMP_X - 60, Math.max(this.cameraX + this.viewW + 85, this.player.x + 640));
+      const minSpawnX = Math.min(enemyCampLimitX - 60, Math.max(this.cameraX + this.viewW + 85, this.player.x + 640));
 
       for (let i = 0; i < squadSize; i++) {
         if (enemyCount + i >= maxEnemies) break;
         const kind = this.pickEnemyKindForWave(this.wave);
-        const sx = Math.min(ENEMY_CAMP_X - 20, minSpawnX + i * 38 + Math.random() * 55);
+        const sx = Math.min(enemyCampLimitX - 20, minSpawnX + i * 38 + Math.random() * 55);
         const sy = Math.max(
           PLAYABLE_Y_MIN + 14,
           Math.min(PLAYABLE_Y_MAX - 14, getRoadCenterY(sx) + (Math.random() - 0.5) * 210)
@@ -872,7 +909,7 @@ export class GameEngine {
       }
     }
 
-    // Allied continuous steady reinforcements from ALLIED CAMP
+    // Allied continuous steady reinforcements from active ALLIED CAMP
     this.allySpawnTimer -= dt;
     const allyCount = this.soldiers.reduce((acc, s) => acc + (s.faction === 'ally' ? 1 : 0), 0);
     const maxAllies = Math.min(20, 10 + Math.floor(this.wave * 1.1));
@@ -886,9 +923,9 @@ export class GameEngine {
 
       const sy = Math.max(
         PLAYABLE_Y_MIN + 20,
-        Math.min(PLAYABLE_Y_MAX - 20, getRoadCenterY(ALLIED_CAMP_X + 70) + (Math.random() - 0.5) * 165)
+        Math.min(PLAYABLE_Y_MAX - 20, getRoadCenterY(this.alliedCamp.x + 70) + (Math.random() - 0.5) * 165)
       );
-      this.spawnSoldier('ally', kind, ALLIED_CAMP_X + 45, sy);
+      this.spawnSoldier('ally', kind, this.alliedCamp.x + 45, sy);
     }
 
     // Periodic parachute supply crates
@@ -907,7 +944,7 @@ export class GameEngine {
       } else {
         this.tankRespawnTimer -= dt;
         if (this.tankRespawnTimer <= 0) {
-          const dropX = Math.max(420, Math.min(WORLD_WIDTH - 480, this.player.x + 120));
+          const dropX = Math.max(this.alliedCamp.x + 180, Math.min(this.worldWidth - 480, this.player.x + 120));
           const dropY = getRoadCenterY(dropX);
           this.spawnTank(dropX, dropY, true);
           this.showToast('TANK AIRDROP INBOUND! PRESS [E] TO BOARD!');
@@ -964,8 +1001,8 @@ export class GameEngine {
     const kind = pool[Math.floor(Math.random() * pool.length)];
     const anchorX = this.player.x;
     const dropX = Math.max(
-      340,
-      Math.min(WORLD_WIDTH - 320, anchorX + 120 + (Math.random() - 0.3) * 440)
+      this.alliedCamp.x + 180,
+      Math.min(this.worldWidth - 320, anchorX + 120 + (Math.random() - 0.3) * 440)
     );
     const dropY = Math.max(
       PLAYABLE_Y_MIN + 26,
@@ -1091,7 +1128,7 @@ export class GameEngine {
       } else {
         tank.vx = moveX * TANK_SPEED;
         tank.vy = moveY * TANK_SPEED * 0.78;
-        tank.x = Math.max(ALLIED_CAMP_X + 75, Math.min(WORLD_WIDTH - 155, tank.x + tank.vx * dt));
+        tank.x = Math.max(ALLIED_CAMP_X + 75, Math.min(this.worldWidth - 155, tank.x + tank.vx * dt));
         tank.y = Math.max(PLAYABLE_Y_MIN + 10, Math.min(PLAYABLE_Y_MAX - 8, tank.y + tank.vy * dt));
 
         const speed = Math.hypot(tank.vx, tank.vy);
@@ -1178,7 +1215,7 @@ export class GameEngine {
       p.vy = moveY * PLAYER_SPEED * 0.85;
     }
 
-    p.x = Math.max(ALLIED_CAMP_X + 36, Math.min(WORLD_WIDTH - 135, p.x + p.vx * dt));
+    p.x = Math.max(ALLIED_CAMP_X + 36, Math.min(this.worldWidth - 135, p.x + p.vx * dt));
     p.y = Math.max(PLAYABLE_Y_MIN, Math.min(PLAYABLE_Y_MAX, p.y + p.vy * dt));
 
     const speed = Math.hypot(p.vx, p.vy);
@@ -1646,12 +1683,14 @@ export class GameEngine {
       s.knockVy *= Math.pow(0.002, dt);
 
       // Acquire nearest opposing target
-      let targetX = s.faction === 'ally' ? ENEMY_CAMP_X - 70 : ALLIED_CAMP_X + 65;
+      const enemyCampLimitX = this.enemyBarracks ? this.enemyBarracks.x : this.worldWidth - 100;
+      let targetX = s.faction === 'ally' ? enemyCampLimitX - 70 : this.alliedCamp.x + 65;
       let targetY = getRoadCenterY(s.x) + s.preferredLaneOffset;
       let targetSoldier: SoldierEntity | null = null;
       let targetIsPlayer = false;
       let targetTank: TankEntity | null = null;
       let targetIsCamp = false;
+      let targetIsBarracks = false;
       let bestScore = Infinity;
 
       const aggroRange = stats.isRanged ? 460 : 340;
@@ -1666,10 +1705,21 @@ export class GameEngine {
         }
       }
 
+      // Allies target enemy barracks if in range or no enemy soldiers ahead!
+      if (s.faction === 'ally' && this.enemyBarracks && !this.enemyBarracks.destroyed) {
+        const eb = this.enemyBarracks;
+        const bDist = Math.hypot(eb.x - 45 - s.x, (eb.y - s.y) * 0.7);
+        if (bDist < (stats.isRanged ? 460 : 220) && (targetSoldier === null || bDist < bestScore * 0.85)) {
+          bestScore = bDist;
+          targetSoldier = null;
+          targetIsBarracks = true;
+        }
+      }
+
       // Enemies can also target the Player, Tanks, and Allied Camp!
       if (s.faction === 'enemy' && !titleDemo) {
         // Siege ram strongly prioritizes Allied Camp unless blocked
-        const campDist = Math.hypot(ALLIED_CAMP_X + 45 - s.x, (ALLIED_CAMP_Y - s.y) * 0.7);
+        const campDist = Math.hypot(this.alliedCamp.x + 45 - s.x, (this.alliedCamp.y - s.y) * 0.7);
         if (campDist < (s.kind === 'siege_ram' ? 3200 : 210) && (s.kind === 'siege_ram' || campDist < bestScore * 0.9)) {
           bestScore = campDist;
           targetSoldier = null;
@@ -1711,8 +1761,11 @@ export class GameEngine {
         targetX = p.x;
         targetY = p.y;
       } else if (targetIsCamp) {
-        targetX = ALLIED_CAMP_X + 42;
-        targetY = Math.max(ALLIED_CAMP_Y - 65, Math.min(ALLIED_CAMP_Y + 65, s.y));
+        targetX = this.alliedCamp.x + 42;
+        targetY = Math.max(this.alliedCamp.y - 65, Math.min(this.alliedCamp.y + 65, s.y));
+      } else if (targetIsBarracks && this.enemyBarracks) {
+        targetX = this.enemyBarracks.x - 45;
+        targetY = Math.max(PLAYABLE_Y_MIN + 25, Math.min(PLAYABLE_Y_MAX - 25, s.y));
       }
 
       const dx = targetX - s.x;
@@ -1721,9 +1774,9 @@ export class GameEngine {
 
       const effectiveRange =
         stats.attackRange +
-        (targetTank ? 38 : targetIsCamp ? 38 : targetSoldier ? UNIT_STATS[targetSoldier.kind].radius * 0.5 : 10);
+        (targetTank ? 38 : targetIsCamp ? 42 : targetIsBarracks ? 48 : targetSoldier ? UNIT_STATS[targetSoldier.kind].radius * 0.5 : 10);
 
-      const hasTarget = targetSoldier !== null || targetTank !== null || targetIsPlayer || targetIsCamp;
+      const hasTarget = targetSoldier !== null || targetTank !== null || targetIsPlayer || targetIsCamp || targetIsBarracks;
 
       if (hasTarget && dist <= effectiveRange) {
         s.vx = 0;
@@ -1737,7 +1790,7 @@ export class GameEngine {
           if (stats.isRanged) {
             this.fireArcherArrow(s, targetX, targetY);
           } else {
-            this.performMeleeHit(s, targetSoldier, targetTank, targetIsPlayer, targetIsCamp);
+            this.performMeleeHit(s, targetSoldier, targetTank, targetIsPlayer, targetIsCamp, targetIsBarracks);
           }
         }
       } else {
@@ -1778,7 +1831,8 @@ export class GameEngine {
       }
 
       // Clamp to battlefield bounds
-      s.x = Math.max(ALLIED_CAMP_X + 24, Math.min(ENEMY_CAMP_X - 18, s.x));
+      const enemyBoundX = this.enemyBarracks ? this.enemyBarracks.x + 85 : this.worldWidth - 18;
+      s.x = Math.max(ALLIED_CAMP_X + 24, Math.min(enemyBoundX, s.x));
       s.y = Math.max(PLAYABLE_Y_MIN, Math.min(PLAYABLE_Y_MAX, s.y));
 
       // Allied soldiers that reach Enemy War Camp rally back slightly or attack its gates
@@ -1793,7 +1847,8 @@ export class GameEngine {
     targetSoldier: SoldierEntity | null,
     targetTank: TankEntity | null,
     targetIsPlayer: boolean,
-    targetIsCamp: boolean
+    targetIsCamp: boolean,
+    targetIsBarracks = false
   ): void {
     const stats = UNIT_STATS[attacker.kind];
     const dmg = attacker.faction === 'enemy' ? stats.damage * (1 + (this.wave - 1) * 0.06) : stats.damage;
@@ -1831,6 +1886,9 @@ export class GameEngine {
     } else if (targetIsCamp) {
       this.damageAlliedCamp(dmg * (attacker.kind === 'siege_ram' ? 2.2 : 1.0));
       this.sound.playHit();
+    } else if (targetIsBarracks) {
+      this.damageEnemyBarracks(dmg * (attacker.kind === 'knight' ? 1.5 : 1.0));
+      this.sound.playSwordClash();
     }
   }
 
@@ -1945,6 +2003,19 @@ export class GameEngine {
               hit = true;
             }
           }
+          if (!hit && pr.faction === 'ally' && this.enemyBarracks && !this.enemyBarracks.destroyed) {
+            const eb = this.enemyBarracks;
+            if (
+              pr.x >= eb.x - 50 &&
+              pr.x <= eb.x + 85 &&
+              pr.y >= eb.y - 120 &&
+              pr.y <= eb.y + 60
+            ) {
+              this.damageEnemyBarracks(pr.damage);
+              this.sound.playArmorClink();
+              hit = true;
+            }
+          }
         }
 
         if (hit) {
@@ -2030,13 +2101,34 @@ export class GameEngine {
         }
       }
 
+      // Direct projectile hits on active Enemy Barracks!
+      if (!hitTarget && pr.faction === 'ally' && this.enemyBarracks && !this.enemyBarracks.destroyed) {
+        const eb = this.enemyBarracks;
+        if (
+          pr.x >= eb.x - 55 &&
+          pr.x <= eb.x + 85 &&
+          pr.y >= eb.y - 130 &&
+          pr.y <= eb.y + 65
+        ) {
+          hitTarget = true;
+          const dmgMul = pr.kind === 'tank_shell' ? 1.7 : pr.kind === 'rocket' ? 1.4 : 0.88;
+          this.damageEnemyBarracks(pr.damage * dmgMul);
+          if (pr.explosiveRadius > 0) {
+            this.triggerExplosion(pr.x, pr.y, pr.explosiveRadius, pr.damage, pr.knockback, true);
+          } else {
+            this.spawnHitSparks(pr.x, pr.y - pr.z, '#ffe875', 5);
+            this.sound.playHit();
+          }
+        }
+      }
+
       if (hitTarget) {
         this.projectiles.splice(i, 1);
         continue;
       }
 
-      if (pr.life <= 0 || pr.x < 0 || pr.x > WORLD_WIDTH || pr.y < HORIZON_Y || pr.y > LOGICAL_HEIGHT + 40) {
-        if (pr.explosiveRadius > 0 && pr.x > 0 && pr.x < WORLD_WIDTH) {
+      if (pr.life <= 0 || pr.x < 0 || pr.x > this.worldWidth || pr.y < HORIZON_Y || pr.y > LOGICAL_HEIGHT + 40) {
+        if (pr.explosiveRadius > 0 && pr.x > 0 && pr.x < this.worldWidth) {
           this.triggerExplosion(pr.x, Math.max(PLAYABLE_Y_MIN, Math.min(PLAYABLE_Y_MAX, impactY)), pr.explosiveRadius, pr.damage, pr.knockback, true);
         }
         this.projectiles.splice(i, 1);
@@ -2165,6 +2257,18 @@ export class GameEngine {
         );
       }
     }
+
+    // Blast damage to active Enemy Barracks!
+    if (this.enemyBarracks && !this.enemyBarracks.destroyed) {
+      const eb = this.enemyBarracks;
+      const bdx = eb.x + 10 - x;
+      const bdy = (eb.y - 20 - y) * 1.2;
+      const bd = Math.hypot(bdx, bdy);
+      if (bd <= radius + 55) {
+        const falloff = 1 - (bd / (radius + 55)) * 0.5;
+        this.damageEnemyBarracks(maxDamage * falloff * 0.95);
+      }
+    }
   }
 
   private damageSoldier(
@@ -2242,7 +2346,7 @@ export class GameEngine {
       this.combo = Math.min(5, this.combo + 1);
     }
 
-    const frontlineBonus = this.player.x > WORLD_WIDTH * 0.45 ? 1.25 : 1.0;
+    const frontlineBonus = this.player.x > this.alliedCamp.x + 1200 ? 1.25 : 1.0;
     const pts = Math.round(stats.score * this.combo * frontlineBonus);
     this.score += pts;
 
@@ -2326,12 +2430,140 @@ export class GameEngine {
   private damageAlliedCamp(dmg: number): void {
     this.alliedCamp.hp = Math.max(0, this.alliedCamp.hp - dmg);
     this.alliedCamp.hitFlash = 0.14;
-    this.spawnWoodSplinters(ALLIED_CAMP_X + 18, ALLIED_CAMP_Y - 12, 5);
+    this.spawnWoodSplinters(this.alliedCamp.x + 18, this.alliedCamp.y - 12, 5);
     this.addShake(3.2);
 
     if (this.alliedCamp.hp <= 0) {
       this.triggerGameOver('THE ALLIED CAMP HAS FALLEN');
     }
+  }
+
+  private damageEnemyBarracks(dmg: number): void {
+    if (!this.enemyBarracks || this.enemyBarracks.destroyed) return;
+    this.enemyBarracks.hp = Math.max(0, this.enemyBarracks.hp - dmg);
+    this.enemyBarracks.hitFlash = 0.16;
+    this.spawnWoodSplinters(this.enemyBarracks.x + 20, this.enemyBarracks.y - 14, 6);
+    this.addShake(Math.min(9, dmg * 0.08 + 1.8));
+
+    this.spawnFloatingText(
+      this.enemyBarracks.x + (Math.random() - 0.5) * 50,
+      this.enemyBarracks.y - 120 - Math.random() * 25,
+      `-${Math.round(dmg)}`,
+      '#ff7b72',
+      15
+    );
+
+    if (this.enemyBarracks.hp <= 0) {
+      this.conquerEnemyBarracks();
+    }
+  }
+
+  private conquerEnemyBarracks(): void {
+    if (!this.enemyBarracks || this.enemyBarracks.destroyed) return;
+    this.enemyBarracks.destroyed = true;
+    this.enemyBarracks.hp = 0;
+    this.barracksConquered++;
+
+    const conqueredX = this.enemyBarracks.x;
+    const conqueredY = this.enemyBarracks.y;
+
+    // Fireworks / explosions
+    this.triggerExplosion(conqueredX + 30, conqueredY - 10, 240, 0, 320, false);
+    for (let k = 0; k < 5; k++) {
+      this.triggerExplosion(
+        conqueredX - 30 + Math.random() * 110,
+        conqueredY - 40 + Math.random() * 55,
+        140,
+        0,
+        180,
+        false
+      );
+    }
+    this.spawnWoodSplinters(conqueredX + 20, conqueredY - 20, 32);
+    this.addShake(22);
+    this.sound.playWaveHorn();
+
+    // Score & Combos
+    const scoreGain = 4000 + (this.sector - 1) * 1500;
+    this.score += scoreGain;
+    this.combo += 4;
+    this.comboTimer = 10;
+    this.kills += 5;
+    this.spawnFloatingText(
+      conqueredX + 20,
+      conqueredY - 160,
+      `+${scoreGain.toLocaleString()} BARRACKS CONQUERED!`,
+      '#ffd54f',
+      24
+    );
+
+    // Supply drops & tank replacement
+    this.spawnPickup('ammo_all', conqueredX - 60, conqueredY - 20, false);
+    this.spawnPickup('medkit', conqueredX - 120, conqueredY + 20, false);
+    const activeTank = this.tanks.find((t) => t.hp > 0);
+    if (!activeTank || activeTank.hp < activeTank.maxHp * 0.45) {
+      this.spawnTank(conqueredX - 180, getRoadCenterY(conqueredX - 180), true);
+    }
+
+    // Record old camp as secured base behind us
+    this.conqueredBases.push({
+      x: this.alliedCamp.x,
+      y: this.alliedCamp.y,
+      name: this.sector === 1 ? 'MAIN ALLIED FORTRESS' : `ALLIED OUTPOST ${toRoman(this.sector - 1)}`,
+    });
+
+    // Move active allied forward camp
+    this.alliedCamp.x = conqueredX;
+    this.alliedCamp.y = conqueredY;
+    this.alliedCamp.hp = this.alliedCamp.maxHp;
+    this.alliedCamp.hitFlash = 0;
+
+    // Rally 4 allied soldiers immediately
+    for (let i = 0; i < 4; i++) {
+      const allyKind: UnitKind = i === 0 ? 'knight' : i === 1 ? 'spearman' : 'footman';
+      this.spawnSoldier(
+        'ally',
+        allyKind,
+        conqueredX + 35 + i * 28,
+        getRoadCenterY(conqueredX + 35) + (Math.random() - 0.5) * 80
+      );
+    }
+
+    // Advance sector & expand world
+    this.sector++;
+    const nextBarracksX = conqueredX + SECTOR_LENGTH;
+    this.worldWidth = nextBarracksX + 380;
+    this.generateSceneryForRange(conqueredX + 60, this.worldWidth - 60, 270);
+
+    // Spawn next enemy barracks
+    const nextMaxHp = 1400 + (this.sector - 1) * 950;
+    const sectorTitle = SECTOR_NAMES[(this.sector - 1) % SECTOR_NAMES.length];
+    this.enemyBarracks = {
+      id: this.nextId++,
+      sector: this.sector,
+      name: `BARRACKS ${toRoman(this.sector)}: ${sectorTitle}`,
+      x: nextBarracksX,
+      y: getRoadCenterY(nextBarracksX) - 4,
+      hp: nextMaxHp,
+      maxHp: nextMaxHp,
+      hitFlash: 0,
+      flagPhase: 1.4,
+      faction: 'enemy',
+      destroyed: false,
+      collapseTimer: 0,
+    };
+
+    // Defending vanguard squad for new sector
+    const bossKind: UnitKind = this.sector % 2 === 0 ? 'siege_ram' : 'warlord';
+    this.spawnSoldier('enemy', bossKind, nextBarracksX - 320, getRoadCenterY(nextBarracksX - 320));
+    for (let i = 0; i < 3; i++) {
+      this.spawnSoldier('enemy', 'knight', nextBarracksX - 220 - i * 40, getRoadCenterY(nextBarracksX - 220) + (i - 1) * 45);
+    }
+
+    this.waveBannerText = `SECTOR ${this.sector} UNLOCKED!`;
+    this.waveBannerSub = `PUSH FORWARD TO ${this.enemyBarracks.name}`;
+    this.waveBannerTimer = 4.2;
+    this.showToast(`BARRACKS CONQUERED! PUSH FORWARD TO BARRACKS ${toRoman(this.sector)}!`);
   }
 
   private triggerGameOver(reason: string): void {
@@ -2406,7 +2638,7 @@ export class GameEngine {
       ? this.player.facing * Math.min(110, this.viewW * 0.12)
       : (this.mouseScreenX - this.viewW * 0.5) * 0.16;
     const desired = this.player.x - this.viewW * 0.42 + lookLead;
-    const clamped = Math.max(0, Math.min(WORLD_WIDTH - this.viewW, desired));
+    const clamped = Math.max(0, Math.min(this.worldWidth - this.viewW, desired));
     this.cameraX += (clamped - this.cameraX) * Math.min(1, dt * 6.5);
   }
 
@@ -2608,7 +2840,11 @@ export class GameEngine {
       mouseScreenY: this.mouseScreenY,
       player: this.player,
       alliedCamp: this.alliedCamp,
-      enemyCampFlagPhase: this.enemyCampFlagPhase,
+      conqueredBases: this.conqueredBases,
+      enemyBarracks: this.enemyBarracks,
+      worldWidth: this.worldWidth,
+      sector: this.sector,
+      barracksConquered: this.barracksConquered,
       tanks: this.tanks,
       soldiers: this.soldiers,
       projectiles: this.projectiles,
@@ -2640,10 +2876,14 @@ export class GameEngine {
         (t) => t.parachuteZ <= 2 && Math.hypot(t.x - this.player.x, t.y - this.player.y) <= TANK_INTERACT_RADIUS
       );
 
+    const activeEnemyX = this.enemyBarracks ? this.enemyBarracks.x : ENEMY_CAMP_X;
+    const sectorOrigin = this.alliedCamp.x;
+    const sectorSpan = Math.max(1, activeEnemyX - sectorOrigin);
+
     let alliesCount = 0;
     let enemiesCount = 0;
     let frontlineX = this.player.x;
-    let enemyMinX = ENEMY_CAMP_X;
+    let enemyMinX = activeEnemyX;
     for (const s of this.soldiers) {
       if (s.faction === 'ally') alliesCount++;
       else {
@@ -2669,6 +2909,11 @@ export class GameEngine {
       playerMaxHp: this.player.maxHp,
       campHp: Math.ceil(this.alliedCamp.hp),
       campMaxHp: this.alliedCamp.maxHp,
+      barracksConquered: this.barracksConquered,
+      sector: this.sector,
+      enemyCampHp: this.enemyBarracks ? Math.ceil(this.enemyBarracks.hp) : 0,
+      enemyCampMaxHp: this.enemyBarracks ? this.enemyBarracks.maxHp : 1,
+      enemyCampName: this.enemyBarracks ? this.enemyBarracks.name : '',
       inTank: this.player.inTankId !== null,
       tankHp: activeTank ? Math.ceil(activeTank.hp) : 0,
       tankMaxHp: activeTank ? activeTank.maxHp : TANK_MAX_HP,
@@ -2681,10 +2926,10 @@ export class GameEngine {
       maxGrenades: this.player.maxGrenades,
       alliesCount,
       enemiesCount,
-      frontlineRatio: Math.max(0, Math.min(1, (frontlineX - ALLIED_CAMP_X) / (ENEMY_CAMP_X - ALLIED_CAMP_X))),
-      playerRatio: Math.max(0, Math.min(1, (this.player.x - ALLIED_CAMP_X) / (ENEMY_CAMP_X - ALLIED_CAMP_X))),
+      frontlineRatio: Math.max(0, Math.min(1, (frontlineX - sectorOrigin) / sectorSpan)),
+      playerRatio: Math.max(0, Math.min(1, (this.player.x - sectorOrigin) / sectorSpan)),
       tankRatio: activeTank
-        ? Math.max(0, Math.min(1, (activeTank.x - ALLIED_CAMP_X) / (ENEMY_CAMP_X - ALLIED_CAMP_X)))
+        ? Math.max(0, Math.min(1, (activeTank.x - sectorOrigin) / sectorSpan))
         : null,
       muted: this.sound.isMuted(),
       gameOverReason: this.gameOverReason,

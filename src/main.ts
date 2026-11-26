@@ -27,6 +27,7 @@ const hudEnemies = mustGet<HTMLElement>('hud-enemies');
 const frontlineBlue = mustGet<HTMLDivElement>('frontline-blue');
 const frontlinePlayerPin = mustGet<HTMLDivElement>('frontline-player-pin');
 const frontlineTankPin = mustGet<HTMLDivElement>('frontline-tank-pin');
+const frontlineTitle = mustGet<HTMLSpanElement>('frontline-title');
 
 const hudScore = mustGet<HTMLSpanElement>('hud-score');
 const hudKills = mustGet<HTMLSpanElement>('hud-kills');
@@ -293,6 +294,7 @@ function renderHud(h: HudSnapshot): void {
   // Frontline
   hudAllies.textContent = String(h.alliesCount);
   hudEnemies.textContent = String(h.enemiesCount);
+  frontlineTitle.textContent = `SECTOR ${h.sector}`;
   frontlineBlue.style.width = `${Math.round(h.frontlineRatio * 100)}%`;
   frontlinePlayerPin.style.left = `${Math.round(h.playerRatio * 100)}%`;
   if (h.tankRatio !== null) {
@@ -378,6 +380,8 @@ function renderHud(h: HudSnapshot): void {
     const secs = Math.floor(h.timeSurvived % 60);
     const chips: [string, string | number][] = [
       ['Time', `${mins}:${secs.toString().padStart(2, '0')}`],
+      ['Barracks Conquered', h.barracksConquered],
+      ['Sector Reached', h.sector],
       ['Footmen', h.breakdown.footman],
       ['Archers', h.breakdown.archer],
       ['Spearmen', h.breakdown.spearman],

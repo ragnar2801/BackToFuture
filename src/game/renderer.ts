@@ -1,8 +1,4 @@
 import {
-  ALLIED_CAMP_X,
-  ALLIED_CAMP_Y,
-  ENEMY_CAMP_X,
-  ENEMY_CAMP_Y,
   HORIZON_Y,
   LOGICAL_HEIGHT,
   PALETTE,
@@ -12,10 +8,13 @@ import {
   WORLD_WIDTH,
   getRoadCenterY,
   getRoadHalfWidth,
+  toRoman,
 } from './constants';
 import type {
+  BarracksState,
   CampState,
   CloudProp,
+  ConqueredBase,
   CorpseProp,
   FloatingText,
   GroundDecal,
@@ -42,7 +41,11 @@ export interface RenderState {
   mouseScreenY: number;
   player: PlayerState;
   alliedCamp: CampState;
-  enemyCampFlagPhase: number;
+  conqueredBases: ConqueredBase[];
+  enemyBarracks: BarracksState | null;
+  worldWidth: number;
+  sector: number;
+  barracksConquered: number;
   tanks: TankEntity[];
   soldiers: SoldierEntity[];
   projectiles: ProjectileEntity[];
@@ -78,7 +81,7 @@ export class GameRenderer {
     ctx.translate(Math.round(-cameraX + shakeX), Math.round(shakeY));
 
     // 2. Ground meadow + winding dirt road
-    this.drawMeadowAndRoad(ctx, cameraX, viewW, viewH);
+    this.drawMeadowAndRoad(ctx, cameraX, viewW, viewH, state.worldWidth);
 
     // 3. Ground decals (scorch craters, tank tracks, stuck arrows)
     this.drawDecals(ctx, state.decals, cameraX, viewW);
@@ -89,21 +92,49 @@ export class GameRenderer {
     // 5. Collect depth-sorted 2.5D entities (Y-sorted)
     const drawables: DrawableItem[] = [];
 
-    // Allied Camp Palisade
-    if (ALLIED_CAMP_X + 260 > cameraX && ALLIED_CAMP_X - 240 < cameraX + viewW) {
+    // Historical Conquered Allied Outposts behind the front
+    for (const b of state.conqueredBases) {
+      if (b.x + 260 > cameraX && b.x - 240 < cameraX + viewW) {
+        drawables.push({
+          sortY: b.y + 40,
+          draw: (c) =>
+            this.drawAlliedCamp(
+              c,
+              { x: b.x, y: b.y, hp: 1, maxHp: 1, hitFlash: 0, flagPhase: 0 },
+              state.time,
+              b.name,
+              false
+            ),
+        });
+      }
+    }
+
+    // Active Allied Camp / Forward Command Post
+    if (state.alliedCamp.x + 260 > cameraX && state.alliedCamp.x - 240 < cameraX + viewW) {
       drawables.push({
-        sortY: ALLIED_CAMP_Y + 40,
-        draw: (c) => this.drawAlliedCamp(c, state.alliedCamp, state.time),
+        sortY: state.alliedCamp.y + 40,
+        draw: (c) =>
+          this.drawAlliedCamp(
+            c,
+            state.alliedCamp,
+            state.time,
+            state.sector > 1 ? `ALLIED OUTPOST ${toRoman(state.sector - 1)}` : 'ALLIED CAMP',
+            true
+          ),
       });
     }
 
-    // Enemy War Camp on far right
-    if (ENEMY_CAMP_X + 260 > cameraX && ENEMY_CAMP_X - 260 < cameraX + viewW) {
-      drawables.push({
-        sortY: ENEMY_CAMP_Y + 35,
-        draw: (c) => this.drawEnemyCamp(c, state.enemyCampFlagPhase, state.time),
-      });
+    // Active Enemy Barracks
+    if (state.enemyBarracks) {
+      const eb = state.enemyBarracks;
+      if (eb.x + 260 > cameraX && eb.x - 260 < cameraX + viewW) {
+        drawables.push({
+          sortY: eb.y + 35,
+          draw: (c) => this.drawEnemyCamp(c, eb, state.time),
+        });
+      }
     }
+
 
     // Corpses / defeated props
     for (const corpse of state.corpses) {
@@ -287,9 +318,15 @@ export class GameRenderer {
     ctx.restore();
   }
 
-  private drawMeadowAndRoad(ctx: CanvasRenderingContext2D, cameraX: number, viewW: number, viewH: number): void {
+  private drawMeadowAndRoad(
+    ctx: CanvasRenderingContext2D,
+    cameraX: number,
+    viewW: number,
+    viewH: number,
+    worldWidth = WORLD_WIDTH
+  ): void {
     const startX = Math.max(-40, Math.floor(cameraX / 32) * 32 - 64);
-    const endX = Math.min(WORLD_WIDTH + 60, cameraX + viewW + 96);
+    const endX = Math.min(worldWidth + 60, cameraX + viewW + 96);
     const bottomY = Math.max(LOGICAL_HEIGHT, viewH) + 32;
 
     // Grass meadow gradient
@@ -497,7 +534,13 @@ export class GameRenderer {
     }
   }
 
-  private drawAlliedCamp(ctx: CanvasRenderingContext2D, camp: CampState, time: number): void {
+  private drawAlliedCamp(
+    ctx: CanvasRenderingContext2D,
+    camp: CampState,
+    time: number,
+    label = 'ALLIED CAMP',
+    showHpBar = true
+  ): void {
     ctx.save();
     ctx.translate(camp.x, camp.y);
 
@@ -649,7 +692,7 @@ export class GameRenderer {
       ctx.stroke();
     }
 
-    // World-space ALLIED CAMP label & crisp blue HP bar (exact match to image.png!)
+    // World-space ALLIED CAMP label & crisp blue HP bar
     const barW = 126;
     const barH = 12;
     const barX = poleX - barW * 0.5 + 10;
@@ -660,27 +703,33 @@ export class GameRenderer {
     ctx.textAlign = 'center';
     ctx.lineWidth = 3.5;
     ctx.strokeStyle = '#14171c';
-    ctx.strokeText('ALLIED CAMP', barX + barW * 0.5, barY - 6);
+    ctx.strokeText(label, barX + barW * 0.5, barY - 6);
     ctx.fillStyle = '#f5f8fc';
-    ctx.fillText('ALLIED CAMP', barX + barW * 0.5, barY - 6);
+    ctx.fillText(label, barX + barW * 0.5, barY - 6);
 
-    ctx.fillStyle = '#1f2329';
-    ctx.fillRect(barX - 2, barY - 2, barW + 4, barH + 4);
-    ctx.fillStyle = hpRatio > 0.3 ? '#4da3ff' : '#ff5b4d';
-    ctx.fillRect(barX, barY, barW * hpRatio, barH);
-    // Gloss highlight
-    ctx.fillStyle = 'rgba(255,255,255,0.28)';
-    ctx.fillRect(barX, barY, barW * hpRatio, barH * 0.4);
-    ctx.strokeStyle = PALETTE.outline;
-    ctx.lineWidth = 1.8;
-    ctx.strokeRect(barX - 1, barY - 1, barW + 2, barH + 2);
+    if (showHpBar) {
+      ctx.fillStyle = '#1f2329';
+      ctx.fillRect(barX - 2, barY - 2, barW + 4, barH + 4);
+      ctx.fillStyle = hpRatio > 0.3 ? '#4da3ff' : '#ff5b4d';
+      ctx.fillRect(barX, barY, barW * hpRatio, barH);
+      // Gloss highlight
+      ctx.fillStyle = 'rgba(255,255,255,0.28)';
+      ctx.fillRect(barX, barY, barW * hpRatio, barH * 0.4);
+      ctx.strokeStyle = PALETTE.outline;
+      ctx.lineWidth = 1.8;
+      ctx.strokeRect(barX - 1, barY - 1, barW + 2, barH + 2);
+    } else {
+      ctx.font = '800 10px "Trebuchet MS", sans-serif';
+      ctx.fillStyle = '#ffd54f';
+      ctx.fillText('★ SECURED BASE', barX + barW * 0.5, barY + 8);
+    }
 
     ctx.restore();
   }
 
-  private drawEnemyCamp(ctx: CanvasRenderingContext2D, flagPhase: number, time: number): void {
+  private drawEnemyCamp(ctx: CanvasRenderingContext2D, camp: BarracksState, time: number): void {
     ctx.save();
-    ctx.translate(ENEMY_CAMP_X, ENEMY_CAMP_Y);
+    ctx.translate(camp.x, camp.y);
 
     // Shadow
     ctx.fillStyle = 'rgba(20, 18, 16, 0.35)';
@@ -693,8 +742,8 @@ export class GameRenderer {
     const poleTopY = -178;
 
     // Crimson Tattered War Banner waving left
-    const w1 = Math.sin(time * 5.8 + flagPhase) * 7;
-    const w2 = Math.cos(time * 7.1 + flagPhase) * 9;
+    const w1 = Math.sin(time * 5.8 + camp.flagPhase) * 7;
+    const w2 = Math.cos(time * 7.1 + camp.flagPhase) * 9;
     ctx.fillStyle = PALETTE.enemyRed;
     ctx.strokeStyle = PALETTE.outline;
     ctx.lineWidth = 2.4;
@@ -708,24 +757,33 @@ export class GameRenderer {
     ctx.fill();
     ctx.stroke();
 
+    // Banner skull/cross emblem
+    ctx.fillStyle = '#1e1b17';
+    ctx.font = '900 13px "Arial Black", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('⚔', poleX - 52, poleTopY + 50 + w1 * 0.6);
+
     // Flagpole
     ctx.fillStyle = '#473024';
     ctx.fillRect(poleX - 4, poleTopY, 8, 180);
     ctx.strokeRect(poleX - 4, poleTopY, 8, 180);
 
     // Spiked dark timber battlements
+    const flash = camp.hitFlash > 0;
+    const damageRatio = Math.max(0, 1 - camp.hp / camp.maxHp);
+
     for (let i = 0; i < 9; i++) {
       const t = i / 8;
       const sx = -26 + t * 126;
       const sy = 44 - t * 84;
       const h = 84 + ((i * 13) % 10);
-      ctx.fillStyle = i % 2 === 0 ? '#5c3c2e' : '#4a2f24';
+      ctx.fillStyle = flash ? '#fff2cc' : i % 2 === 0 ? '#5c3c2e' : '#4a2f24';
       ctx.strokeStyle = PALETTE.outline;
       ctx.lineWidth = 2.2;
       ctx.beginPath();
       ctx.moveTo(sx, sy);
       ctx.lineTo(sx, sy - h + 16);
-      ctx.lineTo(sx + 9, sy - h);
+      ctx.lineTo(sx + 9, sy - h - (damageRatio > 0.4 && i % 3 === 0 ? -10 : 0));
       ctx.lineTo(sx + 18, sy - h + 16);
       ctx.lineTo(sx + 18, sy - 6);
       ctx.closePath();
@@ -733,14 +791,31 @@ export class GameRenderer {
       ctx.stroke();
     }
 
-    // Label
+    // Label & Enemy Health Bar!
+    const barW = 146;
+    const barH = 12;
+    const barX = poleX - barW * 0.5 - 10;
+    const barY = poleTopY - 26;
+    const hpRatio = Math.max(0, camp.hp / camp.maxHp);
+
     ctx.font = '900 12px "Trebuchet MS", "Arial Black", sans-serif';
     ctx.textAlign = 'center';
     ctx.lineWidth = 3.5;
     ctx.strokeStyle = '#14171c';
-    ctx.strokeText('ENEMY WAR CAMP', poleX - 10, poleTopY - 14);
-    ctx.fillStyle = '#ff7d78';
-    ctx.fillText('ENEMY WAR CAMP', poleX - 10, poleTopY - 14);
+    ctx.strokeText(camp.name || 'ENEMY BARRACKS', barX + barW * 0.5, barY - 6);
+    ctx.fillStyle = flash ? '#fff07a' : '#ff7d78';
+    ctx.fillText(camp.name || 'ENEMY BARRACKS', barX + barW * 0.5, barY - 6);
+
+    ctx.fillStyle = '#1f2329';
+    ctx.fillRect(barX - 2, barY - 2, barW + 4, barH + 4);
+    ctx.fillStyle = flash ? '#ffed85' : '#ff3644';
+    ctx.fillRect(barX, barY, barW * hpRatio, barH);
+    // Gloss highlight
+    ctx.fillStyle = 'rgba(255,255,255,0.28)';
+    ctx.fillRect(barX, barY, barW * hpRatio, barH * 0.4);
+    ctx.strokeStyle = PALETTE.outline;
+    ctx.lineWidth = 1.8;
+    ctx.strokeRect(barX - 1, barY - 1, barW + 2, barH + 2);
 
     ctx.restore();
   }
@@ -2485,6 +2560,15 @@ export class GameRenderer {
       if (!tank.occupied) {
         drawEdgeBadge(tank.x, tank.y - 30, 'TANK', '#86e342');
       }
+    }
+
+    // Offscreen Enemy Barracks objective marker
+    if (
+      state.enemyBarracks &&
+      !state.enemyBarracks.destroyed &&
+      (state.enemyBarracks.x < cameraX - 24 || state.enemyBarracks.x > cameraX + viewW + 24)
+    ) {
+      drawEdgeBadge(state.enemyBarracks.x, state.enemyBarracks.y - 25, 'BARRACKS', '#ff4d4d');
     }
 
     // Show at most 1 closest offscreen pickup (prioritizing newly parachuted crates)

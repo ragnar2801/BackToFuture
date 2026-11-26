@@ -250,6 +250,27 @@ export interface CloudProp {
   variant: number;
 }
 
+export interface BarracksState {
+  id: number;
+  sector: number;
+  name: string;
+  x: number;
+  y: number;
+  hp: number;
+  maxHp: number;
+  hitFlash: number;
+  flagPhase: number;
+  faction: Faction;
+  destroyed: boolean;
+  collapseTimer: number;
+}
+
+export interface ConqueredBase {
+  x: number;
+  y: number;
+  name: string;
+}
+
 export interface CampState {
   x: number;
   y: number;
@@ -286,6 +307,11 @@ export interface HudSnapshot {
   playerMaxHp: number;
   campHp: number;
   campMaxHp: number;
+  barracksConquered: number;
+  sector: number;
+  enemyCampHp: number;
+  enemyCampMaxHp: number;
+  enemyCampName: string;
   inTank: boolean;
   tankHp: number;
   tankMaxHp: number;
@@ -298,8 +324,8 @@ export interface HudSnapshot {
   maxGrenades: number;
   alliesCount: number;
   enemiesCount: number;
-  frontlineRatio: number; // 0..1 across world
-  playerRatio: number; // 0..1 across world
+  frontlineRatio: number; // 0..1 across current sector
+  playerRatio: number; // 0..1 across current sector
   tankRatio: number | null;
   muted: boolean;
   gameOverReason: string;
@@ -308,3 +334,4 @@ export interface HudSnapshot {
   pickupToast: string;
   pickupToastTimer: number;
 }
+
