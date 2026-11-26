@@ -33,6 +33,7 @@ export interface RenderState {
   time: number;
   cameraX: number;
   viewW: number;
+  viewH: number;
   shakeX: number;
   shakeY: number;
   mouseWorldX: number;
@@ -63,7 +64,7 @@ interface DrawableItem {
 
 export class GameRenderer {
   public render(ctx: CanvasRenderingContext2D, state: RenderState): void {
-    const { viewW, cameraX, shakeX, shakeY } = state;
+    const { viewW, viewH, cameraX, shakeX, shakeY } = state;
 
     ctx.save();
     ctx.lineJoin = 'round';
@@ -77,7 +78,7 @@ export class GameRenderer {
     ctx.translate(Math.round(-cameraX + shakeX), Math.round(shakeY));
 
     // 2. Ground meadow + winding dirt road
-    this.drawMeadowAndRoad(ctx, cameraX, viewW);
+    this.drawMeadowAndRoad(ctx, cameraX, viewW, viewH);
 
     // 3. Ground decals (scorch craters, tank tracks, stuck arrows)
     this.drawDecals(ctx, state.decals, cameraX, viewW);
@@ -286,18 +287,19 @@ export class GameRenderer {
     ctx.restore();
   }
 
-  private drawMeadowAndRoad(ctx: CanvasRenderingContext2D, cameraX: number, viewW: number): void {
+  private drawMeadowAndRoad(ctx: CanvasRenderingContext2D, cameraX: number, viewW: number, viewH: number): void {
     const startX = Math.max(-40, Math.floor(cameraX / 32) * 32 - 64);
     const endX = Math.min(WORLD_WIDTH + 60, cameraX + viewW + 96);
+    const bottomY = Math.max(LOGICAL_HEIGHT, viewH) + 32;
 
     // Grass meadow gradient
-    const grassGrad = ctx.createLinearGradient(0, HORIZON_Y, 0, LOGICAL_HEIGHT);
+    const grassGrad = ctx.createLinearGradient(0, HORIZON_Y, 0, bottomY);
     grassGrad.addColorStop(0, '#858e67');
-    grassGrad.addColorStop(0.25, PALETTE.grassBase);
-    grassGrad.addColorStop(0.75, '#737c57');
+    grassGrad.addColorStop(0.22, PALETTE.grassBase);
+    grassGrad.addColorStop(0.68, '#737c57');
     grassGrad.addColorStop(1, PALETTE.grassDark);
     ctx.fillStyle = grassGrad;
-    ctx.fillRect(startX, HORIZON_Y + 8, endX - startX, LOGICAL_HEIGHT - HORIZON_Y);
+    ctx.fillRect(startX, HORIZON_Y + 8, endX - startX, bottomY - HORIZON_Y);
 
     // Subtle horizontal darker meadow contour bands for depth
     ctx.fillStyle = 'rgba(72, 80, 52, 0.14)';
@@ -306,8 +308,8 @@ export class GameRenderer {
     for (let x = startX; x <= endX; x += 64) {
       ctx.lineTo(x, 548 + Math.sin(x * 0.005) * 16);
     }
-    ctx.lineTo(endX, LOGICAL_HEIGHT);
-    ctx.lineTo(startX, LOGICAL_HEIGHT);
+    ctx.lineTo(endX, bottomY);
+    ctx.lineTo(startX, bottomY);
     ctx.closePath();
     ctx.fill();
 

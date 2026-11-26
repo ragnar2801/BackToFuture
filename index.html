@@ -2,7 +2,11 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
     <title>Back to Future — Modern Firepower vs. Medieval Armies</title>
     <meta
       name="description"
@@ -84,6 +88,33 @@
         <!-- Pickup / Event Toast -->
         <div id="pickup-toast" class="pickup-toast hidden"></div>
 
+        <!-- Mobile Multi-Touch Controls Layer (auto-shown on touch devices) -->
+        <div id="touch-controls" class="touch-controls" aria-label="Touch Controls">
+          <!-- Left Virtual Move Joystick -->
+          <div id="touch-move-zone" class="stick-zone move-zone">
+            <div id="move-stick-base" class="stick-base">
+              <span class="stick-label">MOVE</span>
+              <div id="move-stick-knob" class="stick-knob"></div>
+            </div>
+          </div>
+
+          <!-- Right Virtual Aim/Fire Joystick + Action Buttons -->
+          <div id="touch-right-zone" class="touch-right-zone">
+            <div class="touch-action-row">
+              <button id="touch-btn-tank" class="touch-btn tank-btn hidden" type="button">TANK</button>
+              <button id="touch-btn-roll" class="touch-btn roll-btn" type="button">ROLL</button>
+              <button id="touch-btn-frag" class="touch-btn frag-btn" type="button">
+                <span id="touch-frag-label">FRAG</span>
+                <small id="touch-frag-count">4</small>
+              </button>
+            </div>
+            <div id="aim-stick-base" class="stick-base aim-stick-base">
+              <span id="aim-stick-label" class="stick-label">AIM &amp; FIRE</span>
+              <div id="aim-stick-knob" class="stick-knob aim-knob"></div>
+            </div>
+          </div>
+        </div>
+
         <!-- Bottom Weapon Hotbar / Tank Bar -->
         <div class="hud-bottom">
           <div id="weapon-bar" class="weapon-bar" role="toolbar" aria-label="Modern Arsenal"></div>
@@ -126,13 +157,18 @@
             <button id="btn-play" class="primary-btn" type="button">DEPLOY TO BATTLE</button>
             <div id="title-highscore" class="best-pill hidden">BEST: <strong id="title-highscore-val">0</strong></div>
           </div>
-          <div class="key-grid">
+          <div class="key-grid desktop-keys">
             <div><kbd>WASD</kbd> Move</div>
             <div><kbd>LMB</kbd> Fire Weapon</div>
             <div><kbd>RMB</kbd> / <kbd>G</kbd> Grenade</div>
             <div><kbd>E</kbd> Enter / Exit Tank</div>
             <div><kbd>1-5</kbd> / <kbd>Scroll</kbd> Weapons</div>
             <div><kbd>Shift</kbd> Dodge Roll</div>
+          </div>
+          <div class="touch-legend">
+            <span><strong>Left Stick</strong> Move</span>
+            <span><strong>Right Stick / Tap</strong> Aim &amp; Shoot</span>
+            <span><strong>Buttons</strong> Frag • Roll • Tank</span>
           </div>
         </div>
       </section>

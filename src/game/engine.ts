@@ -75,6 +75,7 @@ export class GameEngine {
   private rafId = 0;
   private lastTimestamp = 0;
   private viewW = 1280;
+  private viewH = LOGICAL_HEIGHT;
   private scale = 1;
   private dpr = 1;
 
@@ -96,6 +97,15 @@ export class GameEngine {
   private mouseScreenY = 260;
   private mouseDownLeft = false;
   private mouseDownRight = false;
+  private isTouchInput = false;
+  private touchMoveX = 0;
+  private touchMoveY = 0;
+  private touchAimActive = false;
+  private touchAimAngle = 0;
+  private touchFiring = false;
+  private touchCoax = false;
+  private canvasTouchId: number | null = null;
+  private resizeTimers: number[] = [];
 
   // World entities
   private player!: PlayerState;
@@ -186,8 +196,10 @@ export class GameEngine {
 
   public startNewGame(): void {
     this.sound.unlock();
+    this.resetTouchInputs();
     this.phase = 'playing';
     this.setupInitialWorld(false);
+    this.handleResize();
     this.announceWave(1);
     this.sound.playWaveHorn();
     this.pushHud(true);
@@ -198,9 +210,11 @@ export class GameEngine {
       this.phase = 'paused';
       this.mouseDownLeft = false;
       this.mouseDownRight = false;
+      this.resetTouchInputs();
       this.pushHud(true);
     } else if (this.phase === 'paused') {
       this.phase = 'playing';
+      this.handleResize();
       this.pushHud(true);
     }
   }
@@ -220,6 +234,62 @@ export class GameEngine {
     this.sound.unlock();
     this.sound.toggleMute();
     this.pushHud(true);
+  }
+
+  public setTouchMove(x: number, y: number): void {
+    this.isTouchInput = true;
+    this.sound.unlock();
+    this.touchMoveX = Math.max(-1, Math.min(1, x));
+    this.touchMoveY = Math.max(-1, Math.min(1, y));
+  }
+
+  public setTouchAim(active: boolean, dx: number, dy: number, firing: boolean): void {
+    this.isTouchInput = true;
+    this.sound.unlock();
+    this.touchAimActive = active;
+    this.touchFiring = firing;
+    if (active && Math.hypot(dx, dy) > 0.08) {
+      this.touchAimAngle = Math.atan2(dy, dx);
+    }
+  }
+
+  public setTouchCoax(firing: boolean): void {
+    this.isTouchInput = true;
+    this.sound.unlock();
+    this.touchCoax = firing;
+  }
+
+  public triggerGrenade(): void {
+    this.isTouchInput = true;
+    this.sound.unlock();
+    if (this.phase === 'playing' && this.player.alive && this.player.inTankId === null) {
+      this.tryThrowGrenade();
+    }
+  }
+
+  public triggerDodge(): void {
+    this.isTouchInput = true;
+    this.sound.unlock();
+    if (this.phase === 'playing' && this.player.alive && this.player.inTankId === null) {
+      this.tryDodgeRoll();
+    }
+  }
+
+  public triggerTankToggle(): void {
+    this.isTouchInput = true;
+    this.sound.unlock();
+    if (this.phase === 'playing' && this.player.alive) {
+      this.tryToggleTank();
+    }
+  }
+
+  public resetTouchInputs(): void {
+    this.touchMoveX = 0;
+    this.touchMoveY = 0;
+    this.touchAimActive = false;
+    this.touchFiring = false;
+    this.touchCoax = false;
+    this.canvasTouchId = null;
   }
 
   private generateWorldScenery(): void {
@@ -412,8 +482,34 @@ export class GameEngine {
     this.cameraX = isTitleDemo ? 0 : Math.max(0, this.player.x - this.viewW * 0.34);
   }
 
+  private scheduleResize(): void {
+    this.handleResize();
+    for (const id of this.resizeTimers) window.clearTimeout(id);
+    this.resizeTimers = [
+      window.setTimeout(() => this.handleResize(), 120),
+      window.setTimeout(() => this.handleResize(), 320),
+    ];
+  }
+
   private bindEvents(): void {
-    window.addEventListener('resize', () => this.handleResize());
+    window.addEventListener('resize', () => this.scheduleResize());
+    window.addEventListener('orientationchange', () => {
+      this.resetTouchInputs();
+      this.scheduleResize();
+    });
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', () => this.scheduleResize());
+    }
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        this.keys.clear();
+        this.mouseDownLeft = false;
+        this.mouseDownRight = false;
+        this.resetTouchInputs();
+      } else {
+        this.scheduleResize();
+      }
+    });
 
     window.addEventListener('keydown', (e) => {
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
@@ -479,15 +575,18 @@ export class GameEngine {
       this.keys.clear();
       this.mouseDownLeft = false;
       this.mouseDownRight = false;
+      this.resetTouchInputs();
     });
 
     this.canvas.addEventListener('mousemove', (e) => {
+      if (this.isTouchInput) return;
       const rect = this.canvas.getBoundingClientRect();
       this.mouseScreenX = (e.clientX - rect.left) / this.scale;
       this.mouseScreenY = (e.clientY - rect.top) / this.scale;
     });
 
     this.canvas.addEventListener('mousedown', (e) => {
+      if (this.isTouchInput) return;
       this.sound.unlock();
       const rect = this.canvas.getBoundingClientRect();
       this.mouseScreenX = (e.clientX - rect.left) / this.scale;
@@ -508,6 +607,59 @@ export class GameEngine {
       if (e.button === 2) this.mouseDownRight = false;
     });
 
+    // Direct battlefield touch aim & shoot (multi-touch safe alongside virtual sticks!)
+    this.canvas.addEventListener(
+      'touchstart',
+      (e) => {
+        if (this.phase !== 'playing') return;
+        e.preventDefault();
+        this.isTouchInput = true;
+        this.sound.unlock();
+        if (this.canvasTouchId !== null) return;
+        const touch = e.changedTouches[0];
+        if (!touch) return;
+        this.canvasTouchId = touch.identifier;
+        const rect = this.canvas.getBoundingClientRect();
+        this.mouseScreenX = (touch.clientX - rect.left) / this.scale;
+        this.mouseScreenY = (touch.clientY - rect.top) / this.scale;
+        this.touchFiring = true;
+      },
+      { passive: false }
+    );
+
+    this.canvas.addEventListener(
+      'touchmove',
+      (e) => {
+        if (this.canvasTouchId === null) return;
+        for (let i = 0; i < e.changedTouches.length; i++) {
+          const touch = e.changedTouches[i];
+          if (touch.identifier === this.canvasTouchId) {
+            e.preventDefault();
+            const rect = this.canvas.getBoundingClientRect();
+            this.mouseScreenX = (touch.clientX - rect.left) / this.scale;
+            this.mouseScreenY = (touch.clientY - rect.top) / this.scale;
+            break;
+          }
+        }
+      },
+      { passive: false }
+    );
+
+    const endCanvasTouch = (e: TouchEvent) => {
+      if (this.canvasTouchId === null) return;
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        if (e.changedTouches[i].identifier === this.canvasTouchId) {
+          this.canvasTouchId = null;
+          if (!this.touchAimActive) {
+            this.touchFiring = false;
+          }
+          break;
+        }
+      }
+    };
+    this.canvas.addEventListener('touchend', endCanvasTouch, { passive: true });
+    this.canvas.addEventListener('touchcancel', endCanvasTouch, { passive: true });
+
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
     this.canvas.addEventListener(
@@ -523,21 +675,34 @@ export class GameEngine {
 
   public handleResize(): void {
     const parent = this.canvas.parentElement;
-    const cssW = Math.max(320, parent ? parent.clientWidth : window.innerWidth);
-    const cssH = Math.max(240, parent ? parent.clientHeight : window.innerHeight);
+    const vv = window.visualViewport;
+    const cssW = Math.max(320, Math.round(vv ? vv.width : parent ? parent.clientWidth : window.innerWidth));
+    const cssH = Math.max(240, Math.round(vv ? vv.height : parent ? parent.clientHeight : window.innerHeight));
 
     this.dpr = Math.min(2, window.devicePixelRatio || 1);
     this.scale = cssH / LOGICAL_HEIGHT;
-    this.viewW = Math.max(840, Math.min(1680, Math.round(cssW / this.scale)));
+    const rawViewW = cssW / this.scale;
 
-    // If aspect ratio is very narrow, scale by width instead so viewW stays playable
-    if (cssW / this.scale < 840) {
-      this.viewW = 840;
+    if (rawViewW < 680) {
+      // Narrow portrait viewport: scale by width so horizontal battlefield sightline stays generous
+      this.viewW = 680;
       this.scale = cssW / this.viewW;
+    } else if (rawViewW > 2000) {
+      // Ultra-wide screen: scale up cleanly so there is never an unpainted right gap
+      this.viewW = 2000;
+      this.scale = cssW / this.viewW;
+    } else {
+      this.viewW = Math.ceil(rawViewW);
     }
 
+    this.viewH = Math.ceil(cssH / this.scale);
     this.canvas.width = Math.round(cssW * this.dpr);
     this.canvas.height = Math.round(cssH * this.dpr);
+
+    // Keep camera inside world bounds cleanly across orientation changes
+    if (this.player) {
+      this.cameraX = Math.max(0, Math.min(WORLD_WIDTH - this.viewW, this.cameraX));
+    }
   }
 
   private cycleWeapon(dir: 1 | -1): void {
@@ -887,21 +1052,36 @@ export class GameEngine {
       }
     }
 
-    const worldMouseX = this.cameraX + this.mouseScreenX;
-    const worldMouseY = this.mouseScreenY;
-
-    // Movement Input Vector
-    let moveX = 0;
-    let moveY = 0;
+    // Movement Input Vector (keyboard + analog virtual move stick)
+    let moveX = this.touchMoveX;
+    let moveY = this.touchMoveY;
     if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) moveX -= 1;
     if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) moveX += 1;
     if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) moveY -= 1;
     if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) moveY += 1;
     const mag = Math.hypot(moveX, moveY);
-    if (mag > 0) {
+    if (mag > 1) {
       moveX /= mag;
       moveY /= mag;
     }
+
+    // Sync aim coordinates when using the right virtual Aim/Fire stick
+    if (this.touchAimActive) {
+      const originY = p.inTankId !== null ? p.y - 44 : p.y - 28;
+      this.mouseScreenX = p.x - this.cameraX + Math.cos(this.touchAimAngle) * 260;
+      this.mouseScreenY = originY + Math.sin(this.touchAimAngle) * 260;
+    } else if (this.isTouchInput && this.canvasTouchId === null && mag > 0.2) {
+      // Gently align aim direction with movement when not actively touching aim stick
+      const originY = p.inTankId !== null ? p.y - 44 : p.y - 28;
+      const mvAng = Math.atan2(moveY * 0.45, moveX);
+      this.mouseScreenX = p.x - this.cameraX + Math.cos(mvAng) * 260;
+      this.mouseScreenY = originY + Math.sin(mvAng) * 260;
+    }
+
+    const worldMouseX = this.cameraX + this.mouseScreenX;
+    const worldMouseY = this.mouseScreenY;
+    const wantFire = this.mouseDownLeft || this.touchFiring;
+    const wantCoax = this.mouseDownRight || this.keys.has('Space') || this.touchCoax;
 
     // DRIVING TANK MODE
     if (p.inTankId !== null) {
@@ -943,9 +1123,11 @@ export class GameEngine {
         p.vx = tank.vx;
         p.vy = tank.vy;
 
-        // Smooth turret rotation toward cursor
+        // Smooth turret rotation toward cursor / touch aim
         const turretY = tank.y - 44;
-        const desired = Math.atan2(worldMouseY - turretY, worldMouseX - tank.x);
+        const desired = this.touchAimActive
+          ? this.touchAimAngle
+          : Math.atan2(worldMouseY - turretY, worldMouseX - tank.x);
         const diff = Math.atan2(Math.sin(desired - tank.turretAngle), Math.cos(desired - tank.turretAngle));
         tank.turretAngle += diff * Math.min(1, dt * 11);
 
@@ -972,13 +1154,13 @@ export class GameEngine {
           }
         }
 
-        // Fire 75mm Main Cannon (Left Click)
-        if (this.mouseDownLeft && tank.cannonCooldown <= 0) {
+        // Fire 75mm Main Cannon (Left Click or Right Aim Stick)
+        if (wantFire && tank.cannonCooldown <= 0) {
           this.fireTankCannon(tank);
         }
 
-        // Fire Coaxial Machine Gun (Right Click or Space)
-        if ((this.mouseDownRight || this.keys.has('Space')) && tank.coaxCooldown <= 0) {
+        // Fire Coaxial Machine Gun (Right Click, Space, or Touch MG)
+        if (wantCoax && tank.coaxCooldown <= 0) {
           this.fireTankCoax(tank);
         }
 
@@ -1004,14 +1186,14 @@ export class GameEngine {
       p.walkPhase += dt * 13.5;
     }
 
-    // Aim toward mouse cursor
+    // Aim toward cursor or touch aim stick
     const shoulderY = p.y - 28;
-    p.aimAngle = Math.atan2(worldMouseY - shoulderY, worldMouseX - p.x);
+    p.aimAngle = this.touchAimActive ? this.touchAimAngle : Math.atan2(worldMouseY - shoulderY, worldMouseX - p.x);
     p.facing = Math.cos(p.aimAngle) >= 0 ? 1 : -1;
 
     // Firing active modern weapon
     const wep = WEAPONS[p.activeWeapon];
-    if (this.mouseDownLeft && p.dodgeTimer <= 0) {
+    if (wantFire && p.dodgeTimer <= 0) {
       if (wep.spinUpTime && p.spinUp < wep.spinUpTime) {
         p.spinUp += dt;
       } else if (p.fireCooldown <= 0) {
@@ -1026,14 +1208,14 @@ export class GameEngine {
     const p = this.player;
     if (p.dodgeCooldown > 0 || p.dodgeTimer > 0) return;
 
-    let dx = 0;
-    let dy = 0;
+    let dx = this.touchMoveX;
+    let dy = this.touchMoveY;
     if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) dx -= 1;
     if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) dx += 1;
     if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) dy -= 1;
     if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) dy += 1;
     const m = Math.hypot(dx, dy);
-    if (m > 0) {
+    if (m > 0.1) {
       dx /= m;
       dy /= m;
     } else {
@@ -2219,8 +2401,10 @@ export class GameEngine {
   }
 
   private updateCamera(dt: number): void {
-    // Follow player smoothly with subtle look-ahead toward mouse aim!
-    const lookLead = (this.mouseScreenX - this.viewW * 0.5) * 0.16;
+    // Follow player smoothly with subtle look-ahead toward mouse aim or facing direction
+    const lookLead = this.isTouchInput
+      ? this.player.facing * Math.min(110, this.viewW * 0.12)
+      : (this.mouseScreenX - this.viewW * 0.5) * 0.16;
     const desired = this.player.x - this.viewW * 0.42 + lookLead;
     const clamped = Math.max(0, Math.min(WORLD_WIDTH - this.viewW, desired));
     this.cameraX += (clamped - this.cameraX) * Math.min(1, dt * 6.5);
@@ -2415,6 +2599,7 @@ export class GameEngine {
       time: this.time,
       cameraX: this.cameraX,
       viewW: this.viewW,
+      viewH: this.viewH,
       shakeX: this.shakeX,
       shakeY: this.shakeY,
       mouseWorldX: this.cameraX + this.mouseScreenX,
@@ -2434,7 +2619,7 @@ export class GameEngine {
       floatingTexts: this.floatingTexts,
       scenery: this.scenery,
       clouds: this.clouds,
-      showCrosshair: this.phase === 'playing',
+      showCrosshair: this.phase === 'playing' && (!this.isTouchInput || this.touchAimActive || this.canvasTouchId !== null),
       recoilBloom: this.recoilBloom,
     };
 

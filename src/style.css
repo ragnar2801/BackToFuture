@@ -4,6 +4,8 @@
   box-sizing: border-box;
   user-select: none;
   -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 html,
@@ -12,17 +14,22 @@ body {
   padding: 0;
   width: 100%;
   height: 100%;
+  height: 100dvh;
   overflow: hidden;
+  overscroll-behavior: none;
   background: #4e563f;
   font-family: 'Trebuchet MS', 'Segoe UI', system-ui, -apple-system, sans-serif;
   color: #f5f3ea;
 }
 
 #game-shell {
-  position: relative;
-  width: 100vw;
-  height: 100vh;
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
   overflow: hidden;
+  touch-action: none;
   background: #7c855f;
 }
 
@@ -31,10 +38,15 @@ body {
   width: 100%;
   height: 100%;
   cursor: default;
+  touch-action: none;
 }
 
 #game-canvas.playing-cursor {
   cursor: none;
+}
+
+body.is-touch #game-canvas.playing-cursor {
+  cursor: default;
 }
 
 .hidden {
@@ -49,14 +61,17 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 12px 16px;
+  padding: max(10px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right))
+    max(10px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
 }
 
 .hud-top {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
+  position: relative;
+  z-index: 6;
 }
 
 .hud-panel {
@@ -70,7 +85,7 @@ body {
 
 /* Top-Left Vitals */
 .vitals-panel {
-  min-width: 215px;
+  min-width: 210px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -328,6 +343,7 @@ body {
   transform: translateX(-50%);
   text-align: center;
   pointer-events: none;
+  z-index: 4;
 }
 
 .wave-banner-title {
@@ -372,6 +388,162 @@ body {
   color: #ffea85;
   box-shadow: 0 3px 0 rgba(14, 16, 10, 0.65);
   white-space: nowrap;
+  z-index: 7;
+  pointer-events: none;
+}
+
+/* ==================== MOBILE MULTI-TOUCH CONTROLS ==================== */
+.touch-controls {
+  display: none;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 8;
+}
+
+body.is-touch .touch-controls {
+  display: block;
+}
+
+.stick-zone {
+  position: absolute;
+  bottom: max(18px, calc(env(safe-area-inset-bottom) + 12px));
+  left: max(18px, calc(env(safe-area-inset-left) + 14px));
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.touch-right-zone {
+  position: absolute;
+  bottom: max(18px, calc(env(safe-area-inset-bottom) + 12px));
+  right: max(18px, calc(env(safe-area-inset-right) + 14px));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.touch-action-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.stick-base {
+  position: relative;
+  width: 112px;
+  height: 112px;
+  border-radius: 999px;
+  background: rgba(26, 30, 22, 0.44);
+  border: 2.5px solid rgba(242, 238, 220, 0.36);
+  box-shadow:
+    inset 0 0 18px rgba(0, 0, 0, 0.32),
+    0 3px 0 rgba(14, 16, 11, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+  pointer-events: auto;
+}
+
+.aim-stick-base {
+  background: rgba(44, 34, 20, 0.48);
+  border-color: rgba(245, 206, 66, 0.55);
+}
+
+.stick-base.active {
+  border-color: rgba(247, 214, 72, 0.92);
+  background: rgba(34, 40, 28, 0.62);
+}
+
+.stick-label {
+  position: absolute;
+  bottom: 12px;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  color: rgba(245, 242, 230, 0.58);
+  pointer-events: none;
+}
+
+.stick-knob {
+  width: 48px;
+  height: 48px;
+  border-radius: 999px;
+  background: radial-gradient(circle at 35% 30%, #b5c496 0%, #6f804d 70%, #4d5934 100%);
+  border: 2.5px solid #161812;
+  box-shadow: 0 3px 0 rgba(14, 16, 11, 0.65);
+  transform: translate3d(0, 0, 0);
+  pointer-events: none;
+  will-change: transform;
+}
+
+.aim-knob {
+  background: radial-gradient(circle at 35% 30%, #ffe680 0%, #e5a928 70%, #b57a14 100%);
+}
+
+.touch-btn {
+  min-width: 52px;
+  height: 52px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 2.5px solid #161812;
+  box-shadow: 0 3px 0 rgba(14, 16, 11, 0.65);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1.05;
+  letter-spacing: 0.04em;
+  color: #f7f4e8;
+  touch-action: none;
+  cursor: pointer;
+}
+
+.touch-btn small {
+  font-size: 10px;
+  color: #ffe366;
+}
+
+.touch-btn:active,
+.touch-btn.pressed {
+  transform: translateY(2px) scale(0.96);
+  box-shadow: 0 1px 0 rgba(14, 16, 11, 0.65);
+}
+
+.frag-btn {
+  background: rgba(88, 110, 44, 0.9);
+}
+
+.frag-btn.coax-mode {
+  background: rgba(196, 118, 28, 0.92);
+}
+
+.roll-btn {
+  background: rgba(58, 70, 52, 0.88);
+}
+
+.tank-btn {
+  min-width: 58px;
+  background: linear-gradient(180deg, #91c93e 0%, #689923 100%);
+  color: #14190d;
+  border-color: #ffe35c;
+  animation: pulse-tank 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse-tank {
+  0%,
+  100% {
+    box-shadow: 0 3px 0 rgba(14, 16, 11, 0.65), 0 0 0 0 rgba(255, 227, 92, 0.5);
+  }
+  50% {
+    box-shadow: 0 3px 0 rgba(14, 16, 11, 0.65), 0 0 0 6px rgba(255, 227, 92, 0);
+  }
 }
 
 /* Bottom Hotbar */
@@ -380,6 +552,8 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 6px;
+  position: relative;
+  z-index: 9;
 }
 
 .weapon-bar {
@@ -387,6 +561,7 @@ body {
   align-items: flex-end;
   gap: 7px;
   pointer-events: auto;
+  touch-action: manipulation;
 }
 
 .weapon-slot {
@@ -500,6 +675,39 @@ body {
   color: #f5d451;
 }
 
+body.is-touch .controls-strip,
+body.is-touch .tank-bar,
+body.is-touch .desktop-keys {
+  display: none !important;
+}
+
+.touch-legend {
+  display: none;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  border-top: 2px solid rgba(255, 255, 255, 0.1);
+  padding-top: 12px;
+  font-size: 12px;
+  color: #d0d4c0;
+}
+
+.touch-legend strong {
+  color: #ffe363;
+}
+
+body.is-touch .touch-legend {
+  display: flex;
+}
+
+body.is-touch .weapon-slot.grenade-slot {
+  display: none;
+}
+
+body.is-touch .slot-key {
+  display: none;
+}
+
 /* ==================== OVERLAYS ==================== */
 .overlay {
   position: absolute;
@@ -507,10 +715,13 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+    max(12px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
   background: rgba(20, 24, 18, 0.44);
   backdrop-filter: blur(2px);
   z-index: 20;
+  overflow-y: auto;
+  touch-action: pan-y;
 }
 
 .card {
@@ -524,6 +735,8 @@ body {
   text-align: center;
   max-width: 560px;
   width: 100%;
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
 }
 
 .small-card {
@@ -752,6 +965,7 @@ kbd {
   color: #ffe263;
 }
 
+/* ==================== MOBILE PORTRAIT (Narrow Screens) ==================== */
 @media (max-width: 780px) {
   .frontline-panel {
     display: none;
@@ -759,14 +973,319 @@ kbd {
   .controls-strip {
     display: none;
   }
+  .vitals-panel {
+    min-width: 158px;
+    padding: 6px 9px;
+  }
+  .score-panel {
+    padding: 6px 9px;
+  }
+  .score-num {
+    font-size: 18px;
+  }
+  .kills-num {
+    font-size: 16px;
+  }
   .weapon-slot {
-    min-width: 60px;
+    min-width: 52px;
     padding: 5px 6px;
+  }
+  .slot-name {
+    font-size: 10px;
+    margin-top: 2px;
+  }
+  .slot-ammo {
+    font-size: 11px;
   }
   .game-title {
     font-size: 34px;
   }
   .key-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  /* Lift touch sticks above bottom weapon bar in narrow portrait mode */
+  body.is-touch .stick-zone,
+  body.is-touch .touch-right-zone {
+    bottom: max(76px, calc(env(safe-area-inset-bottom) + 68px));
+  }
+}
+
+/* ==================== MOBILE LANDSCAPE (Short Wide Screens) ==================== */
+@media (max-height: 540px) {
+  .hud {
+    padding: max(6px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right))
+      max(6px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+  }
+
+  .hud-panel {
+    padding: 5px 9px;
+    border-width: 2px;
+    border-radius: 8px;
+    box-shadow: 0 2px 0 rgba(16, 18, 12, 0.55);
+  }
+
+  .vitals-panel {
+    min-width: 156px;
+    gap: 3px;
+  }
+
+  .wave-pill {
+    font-size: 10px;
+    padding: 1px 6px;
+  }
+
+  .wave-track {
+    height: 6px;
+  }
+
+  .bar-label {
+    width: 32px;
+    font-size: 9px;
+  }
+
+  .bar-track {
+    height: 8px;
+  }
+
+  .bar-val {
+    width: 28px;
+    font-size: 9px;
+  }
+
+  .frontline-panel {
+    flex: 0 1 200px;
+    gap: 3px;
+  }
+
+  .frontline-labels {
+    font-size: 9px;
+  }
+
+  .frontline-title {
+    display: none;
+  }
+
+  .frontline-track {
+    height: 8px;
+  }
+
+  .score-panel {
+    gap: 4px;
+  }
+
+  .score-main {
+    gap: 7px;
+  }
+
+  .mini-label {
+    font-size: 8px;
+  }
+
+  .score-num {
+    font-size: 16px;
+  }
+
+  .kills-num {
+    font-size: 15px;
+  }
+
+  .score-divider {
+    height: 18px;
+  }
+
+  .combo-badge {
+    font-size: 11px;
+    padding: 1px 5px;
+  }
+
+  .icon-btn {
+    padding: 2px 7px;
+    font-size: 10px;
+  }
+
+  .wave-banner {
+    top: 16%;
+  }
+
+  .wave-banner-title {
+    font-size: 28px;
+  }
+
+  .wave-banner-sub {
+    font-size: 11px;
+    padding: 2px 10px;
+  }
+
+  .pickup-toast {
+    bottom: 62px;
+    font-size: 10px;
+    padding: 3px 10px;
+  }
+
+  .controls-strip {
+    display: none;
+  }
+
+  /* Compact center weapon strip sits cleanly between left & right landscape joysticks */
+  .weapon-bar {
+    gap: 5px;
+  }
+
+  .weapon-slot {
+    min-width: 52px;
+    padding: 4px 6px;
+    border-width: 2px;
+    border-radius: 7px;
+  }
+
+  .weapon-slot.active {
+    transform: translateY(-3px);
+  }
+
+  .slot-name {
+    font-size: 9px;
+    margin-top: 0;
+  }
+
+  .slot-ammo {
+    font-size: 10px;
+  }
+
+  /* Landscape-tuned thumbsticks & buttons tucked snugly into bottom corners */
+  body.is-touch .stick-zone {
+    bottom: max(10px, calc(env(safe-area-inset-bottom) + 6px));
+    left: max(14px, calc(env(safe-area-inset-left) + 10px));
+  }
+
+  body.is-touch .touch-right-zone {
+    bottom: max(10px, calc(env(safe-area-inset-bottom) + 6px));
+    right: max(14px, calc(env(safe-area-inset-right) + 10px));
+    gap: 7px;
+  }
+
+  .stick-base {
+    width: 96px;
+    height: 96px;
+  }
+
+  .stick-knob {
+    width: 40px;
+    height: 40px;
+  }
+
+  .stick-label {
+    bottom: 9px;
+    font-size: 8px;
+  }
+
+  .touch-action-row {
+    gap: 6px;
+  }
+
+  .touch-btn {
+    min-width: 44px;
+    height: 44px;
+    font-size: 10px;
+    border-width: 2px;
+  }
+
+  .tank-btn {
+    min-width: 50px;
+  }
+
+  /* Compact Overlays so Title / Pause / Game Over NEVER clip in 360-430px landscape */
+  .card {
+    padding: 14px 20px;
+    border-radius: 12px;
+    max-width: 520px;
+  }
+
+  .eyebrow {
+    font-size: 10px;
+    margin-bottom: 3px;
+  }
+
+  .game-title {
+    font-size: 30px;
+    margin-bottom: 6px;
+  }
+
+  .overlay-heading {
+    font-size: 22px;
+    margin-bottom: 10px;
+  }
+
+  .tagline {
+    font-size: 12px;
+    line-height: 1.35;
+    margin-bottom: 10px;
+  }
+
+  .arsenal-preview {
+    gap: 4px;
+    margin-bottom: 12px;
+  }
+
+  .arsenal-preview span {
+    font-size: 10px;
+    padding: 2px 7px;
+  }
+
+  .title-actions {
+    margin-bottom: 10px;
+  }
+
+  .primary-btn,
+  .secondary-btn {
+    padding: 8px 20px;
+    font-size: 14px;
+  }
+
+  .key-grid,
+  .touch-legend {
+    padding-top: 8px;
+    font-size: 11px;
+  }
+
+  .debrief-stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 7px;
+    margin-bottom: 10px;
+  }
+
+  .debrief-box {
+    padding: 6px 8px;
+  }
+
+  .debrief-label {
+    font-size: 9px;
+  }
+
+  .debrief-value {
+    font-size: 18px;
+  }
+
+  .breakdown-row {
+    margin-bottom: 12px;
+    gap: 5px;
+  }
+}
+
+/* Very narrow landscape (e.g. older 568-680px wide phones) */
+@media (max-height: 440px) and (max-width: 720px) {
+  .frontline-panel {
+    display: none;
+  }
+  .stick-base {
+    width: 86px;
+    height: 86px;
+  }
+  .stick-knob {
+    width: 36px;
+    height: 36px;
+  }
+  .weapon-slot {
+    min-width: 44px;
+    padding: 3px 4px;
   }
 }

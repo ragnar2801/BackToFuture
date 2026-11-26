@@ -43,6 +43,18 @@ const weaponBar = mustGet<HTMLDivElement>('weapon-bar');
 const tankBar = mustGet<HTMLDivElement>('tank-bar');
 const controlsStrip = mustGet<HTMLDivElement>('controls-strip');
 
+const touchControls = mustGet<HTMLDivElement>('touch-controls');
+const moveStickBase = mustGet<HTMLDivElement>('move-stick-base');
+const moveStickKnob = mustGet<HTMLDivElement>('move-stick-knob');
+const aimStickBase = mustGet<HTMLDivElement>('aim-stick-base');
+const aimStickKnob = mustGet<HTMLDivElement>('aim-stick-knob');
+const aimStickLabel = mustGet<HTMLSpanElement>('aim-stick-label');
+const touchBtnTank = mustGet<HTMLButtonElement>('touch-btn-tank');
+const touchBtnRoll = mustGet<HTMLButtonElement>('touch-btn-roll');
+const touchBtnFrag = mustGet<HTMLButtonElement>('touch-btn-frag');
+const touchFragLabel = mustGet<HTMLSpanElement>('touch-frag-label');
+const touchFragCount = mustGet<HTMLElement>('touch-frag-count');
+
 const titleHighscore = mustGet<HTMLDivElement>('title-highscore');
 const titleHighscoreVal = mustGet<HTMLElement>('title-highscore-val');
 
@@ -55,6 +67,150 @@ const goBreakdown = mustGet<HTMLDivElement>('go-breakdown');
 
 const weaponButtons = new Map<WeaponId, { el: HTMLButtonElement; ammoEl: HTMLSpanElement }>();
 let grenadeAmmoEl: HTMLSpanElement;
+let isInTank = false;
+
+function detectAndEnableTouchUi(): void {
+  const coarse =
+    (typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches) ||
+    navigator.maxTouchPoints > 0 ||
+    'ontouchstart' in window;
+  if (coarse) {
+    document.body.classList.add('is-touch');
+  }
+  window.addEventListener(
+    'touchstart',
+    () => {
+      document.body.classList.add('is-touch');
+    },
+    { passive: true, once: true }
+  );
+}
+
+interface VirtualStickHandle {
+  reset: () => void;
+}
+
+function bindVirtualStick(
+  baseEl: HTMLElement,
+  knobEl: HTMLElement,
+  onChange: (active: boolean, nx: number, ny: number, distRatio: number) => void
+): VirtualStickHandle {
+  let activeTouchId: number | null = null;
+  let activeMousePointerId: number | null = null;
+
+  const updateFromClient = (clientX: number, clientY: number) => {
+    const rect = baseEl.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    const cx = rect.left + rect.width * 0.5;
+    const cy = rect.top + rect.height * 0.5;
+    const maxRadius = Math.max(22, rect.width * 0.36);
+
+    const dx = clientX - cx;
+    const dy = clientY - cy;
+    const rawDist = Math.hypot(dx, dy);
+    const clampedDist = Math.min(maxRadius, rawDist);
+    const ang = Math.atan2(dy, dx);
+    const kx = rawDist > 0.5 ? Math.cos(ang) * clampedDist : 0;
+    const ky = rawDist > 0.5 ? Math.sin(ang) * clampedDist : 0;
+
+    knobEl.style.transform = `translate3d(${kx.toFixed(1)}px, ${ky.toFixed(1)}px, 0)`;
+
+    const ratio = clampedDist / maxRadius;
+    const deadzone = 0.12;
+    if (ratio < deadzone) {
+      onChange(true, 0, 0, ratio);
+    } else {
+      const scaled = (ratio - deadzone) / (1 - deadzone);
+      onChange(true, Math.cos(ang) * scaled, Math.sin(ang) * scaled, ratio);
+    }
+  };
+
+  const reset = () => {
+    activeTouchId = null;
+    activeMousePointerId = null;
+    baseEl.classList.remove('active');
+    knobEl.style.transform = 'translate3d(0, 0, 0)';
+    onChange(false, 0, 0, 0);
+  };
+
+  // True multi-touch tracking by touch.identifier across window so thumbs never drop near screen edges!
+  baseEl.addEventListener(
+    'touchstart',
+    (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      document.body.classList.add('is-touch');
+      if (activeTouchId !== null) return;
+      const touch = e.changedTouches[0];
+      if (!touch) return;
+      activeTouchId = touch.identifier;
+      baseEl.classList.add('active');
+      updateFromClient(touch.clientX, touch.clientY);
+    },
+    { passive: false }
+  );
+
+  window.addEventListener(
+    'touchmove',
+    (e) => {
+      if (activeTouchId === null) return;
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const t = e.changedTouches[i];
+        if (t.identifier === activeTouchId) {
+          e.preventDefault();
+          updateFromClient(t.clientX, t.clientY);
+          break;
+        }
+      }
+    },
+    { passive: false }
+  );
+
+  const onTouchEnd = (e: TouchEvent) => {
+    if (activeTouchId === null) return;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === activeTouchId) {
+        reset();
+        break;
+      }
+    }
+  };
+  window.addEventListener('touchend', onTouchEnd, { passive: true });
+  window.addEventListener('touchcancel', onTouchEnd, { passive: true });
+
+  // Non-touch pointer fallback (desktop/stylus emulation)
+  baseEl.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'touch' || activeMousePointerId !== null) return;
+    e.preventDefault();
+    e.stopPropagation();
+    activeMousePointerId = e.pointerId;
+    baseEl.classList.add('active');
+    try {
+      baseEl.setPointerCapture(e.pointerId);
+    } catch {
+      // Ignore synthetic events
+    }
+    updateFromClient(e.clientX, e.clientY);
+  });
+
+  baseEl.addEventListener('pointermove', (e) => {
+    if (activeMousePointerId === null || e.pointerId !== activeMousePointerId) return;
+    e.preventDefault();
+    updateFromClient(e.clientX, e.clientY);
+  });
+
+  const endMousePointer = (e: PointerEvent) => {
+    if (activeMousePointerId === null || e.pointerId !== activeMousePointerId) return;
+    reset();
+  };
+  baseEl.addEventListener('pointerup', endMousePointer);
+  baseEl.addEventListener('pointercancel', endMousePointer);
+  baseEl.addEventListener('lostpointercapture', () => {
+    if (activeMousePointerId !== null) reset();
+  });
+
+  return { reset };
+}
 
 function buildWeaponBar(onSelect: (id: WeaponId) => void): void {
   weaponBar.innerHTML = '';
@@ -79,12 +235,16 @@ function buildWeaponBar(onSelect: (id: WeaponId) => void): void {
     ammoSpan.textContent = id === 'pistol' ? '∞' : '0';
 
     btn.append(keySpan, nameSpan, ammoSpan);
-    btn.addEventListener('click', () => onSelect(id));
+    btn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      onSelect(id);
+    });
     weaponBar.appendChild(btn);
     weaponButtons.set(id, { el: btn, ammoEl: ammoSpan });
   }
 
-  // Grenade indicator slot
+  // Grenade indicator slot (desktop HUD)
   const gSlot = document.createElement('div');
   gSlot.className = 'weapon-slot grenade-slot';
   gSlot.title = 'Frag Grenades (Right-Click or G)';
@@ -97,6 +257,8 @@ function buildWeaponBar(onSelect: (id: WeaponId) => void): void {
 let lastPhase = '';
 
 function renderHud(h: HudSnapshot): void {
+  isInTank = h.inTank;
+
   // Overlay switching
   if (h.phase !== lastPhase) {
     lastPhase = h.phase;
@@ -104,6 +266,7 @@ function renderHud(h: HudSnapshot): void {
     pauseOverlay.classList.toggle('hidden', h.phase !== 'paused');
     gameoverOverlay.classList.toggle('hidden', h.phase !== 'gameover');
     hudEl.classList.toggle('hidden', h.phase === 'title');
+    touchControls.classList.toggle('hidden', h.phase !== 'playing');
     canvas.classList.toggle('playing-cursor', h.phase === 'playing');
   }
 
@@ -176,6 +339,21 @@ function renderHud(h: HudSnapshot): void {
   tankBar.classList.toggle('hidden', !h.inTank);
   controlsStrip.classList.toggle('hidden', h.inTank);
 
+  // Mobile dynamic touch buttons
+  touchBtnTank.classList.toggle('hidden', !h.inTank && !h.tankPrompt);
+  touchBtnTank.textContent = h.inTank ? 'EXIT' : 'TANK';
+  touchBtnRoll.classList.toggle('hidden', h.inTank);
+  touchBtnFrag.classList.toggle('coax-mode', h.inTank);
+  if (h.inTank) {
+    touchFragLabel.textContent = 'MG';
+    touchFragCount.textContent = 'HOLD';
+    aimStickLabel.textContent = 'CANNON';
+  } else {
+    touchFragLabel.textContent = 'FRAG';
+    touchFragCount.textContent = String(h.grenades);
+    aimStickLabel.textContent = 'AIM & FIRE';
+  }
+
   for (const id of WEAPON_ORDER) {
     const slot = weaponButtons.get(id);
     if (!slot) continue;
@@ -215,14 +393,160 @@ function renderHud(h: HudSnapshot): void {
   }
 }
 
+detectAndEnableTouchUi();
 const engine = new GameEngine(canvas, renderHud);
 buildWeaponBar((id) => engine.selectWeapon(id));
 
-mustGet<HTMLButtonElement>('btn-play').addEventListener('click', () => engine.startNewGame());
-mustGet<HTMLButtonElement>('btn-resume').addEventListener('click', () => engine.togglePause());
-mustGet<HTMLButtonElement>('btn-restart-pause').addEventListener('click', () => engine.startNewGame());
-mustGet<HTMLButtonElement>('btn-retry').addEventListener('click', () => engine.startNewGame());
+// Wire multi-touch virtual joysticks & action buttons
+const moveStick = bindVirtualStick(moveStickBase, moveStickKnob, (active, nx, ny) => {
+  if (!active) {
+    engine.setTouchMove(0, 0);
+  } else {
+    engine.setTouchMove(nx, ny);
+  }
+});
+
+const aimStick = bindVirtualStick(aimStickBase, aimStickKnob, (active, nx, ny, ratio) => {
+  if (!active) {
+    engine.setTouchAim(false, 0, 0, false);
+  } else {
+    engine.setTouchAim(true, nx, ny, ratio > 0.22);
+  }
+});
+
+let coaxTouchId: number | null = null;
+let coaxMousePointerId: number | null = null;
+let lastIsLandscape = window.innerWidth >= window.innerHeight;
+
+const resetAllTouchUi = () => {
+  moveStick.reset();
+  aimStick.reset();
+  coaxTouchId = null;
+  coaxMousePointerId = null;
+  touchBtnFrag.classList.remove('pressed');
+  engine.setTouchCoax(false);
+  engine.resetTouchInputs();
+};
+
+// Reset active sticks cleanly when device actually flips orientation (not on tiny address-bar resizes!)
+window.addEventListener('orientationchange', () => {
+  lastIsLandscape = window.innerWidth >= window.innerHeight;
+  resetAllTouchUi();
+});
+window.addEventListener('resize', () => {
+  const nowLandscape = window.innerWidth >= window.innerHeight;
+  if (nowLandscape !== lastIsLandscape) {
+    lastIsLandscape = nowLandscape;
+    resetAllTouchUi();
+  }
+});
+window.addEventListener('blur', resetAllTouchUi);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) resetAllTouchUi();
+});
+
+function bindInstantTap(el: HTMLElement, onTap: () => void): void {
+  el.addEventListener(
+    'touchstart',
+    (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      document.body.classList.add('is-touch');
+      el.classList.add('pressed');
+      onTap();
+    },
+    { passive: false }
+  );
+  const clear = () => el.classList.remove('pressed');
+  el.addEventListener('touchend', clear, { passive: true });
+  el.addEventListener('touchcancel', clear, { passive: true });
+  el.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'touch') return;
+    e.preventDefault();
+    e.stopPropagation();
+    onTap();
+  });
+}
+
+bindInstantTap(touchBtnTank, () => engine.triggerTankToggle());
+bindInstantTap(touchBtnRoll, () => engine.triggerDodge());
+
+touchBtnFrag.addEventListener(
+  'touchstart',
+  (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    document.body.classList.add('is-touch');
+    if (isInTank) {
+      const t = e.changedTouches[0];
+      if (!t) return;
+      coaxTouchId = t.identifier;
+      touchBtnFrag.classList.add('pressed');
+      engine.setTouchCoax(true);
+    } else {
+      touchBtnFrag.classList.add('pressed');
+      engine.triggerGrenade();
+    }
+  },
+  { passive: false }
+);
+
+const endCoaxTouch = (e: TouchEvent) => {
+  touchBtnFrag.classList.remove('pressed');
+  if (coaxTouchId === null) return;
+  for (let i = 0; i < e.changedTouches.length; i++) {
+    if (e.changedTouches[i].identifier === coaxTouchId) {
+      coaxTouchId = null;
+      engine.setTouchCoax(false);
+      break;
+    }
+  }
+};
+window.addEventListener('touchend', endCoaxTouch, { passive: true });
+window.addEventListener('touchcancel', endCoaxTouch, { passive: true });
+
+touchBtnFrag.addEventListener('pointerdown', (e) => {
+  if (e.pointerType === 'touch') return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (isInTank) {
+    coaxMousePointerId = e.pointerId;
+    touchBtnFrag.classList.add('pressed');
+    engine.setTouchCoax(true);
+  } else {
+    engine.triggerGrenade();
+  }
+});
+
+const endCoaxMouse = (e: PointerEvent) => {
+  if (coaxMousePointerId === null || e.pointerId !== coaxMousePointerId) return;
+  coaxMousePointerId = null;
+  touchBtnFrag.classList.remove('pressed');
+  engine.setTouchCoax(false);
+};
+window.addEventListener('pointerup', endCoaxMouse);
+window.addEventListener('pointercancel', endCoaxMouse);
+
+mustGet<HTMLButtonElement>('btn-play').addEventListener('click', () => {
+  resetAllTouchUi();
+  engine.startNewGame();
+});
+mustGet<HTMLButtonElement>('btn-resume').addEventListener('click', () => {
+  resetAllTouchUi();
+  engine.togglePause();
+});
+mustGet<HTMLButtonElement>('btn-restart-pause').addEventListener('click', () => {
+  resetAllTouchUi();
+  engine.startNewGame();
+});
+mustGet<HTMLButtonElement>('btn-retry').addEventListener('click', () => {
+  resetAllTouchUi();
+  engine.startNewGame();
+});
 btnMute.addEventListener('click', () => engine.toggleMute());
-btnPause.addEventListener('click', () => engine.togglePause());
+btnPause.addEventListener('click', () => {
+  resetAllTouchUi();
+  engine.togglePause();
+});
 
 engine.startLoop();
