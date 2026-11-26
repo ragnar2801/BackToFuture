@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Back to Future — Modern Firepower vs. Medieval Armies</title>
+    <meta
+      name="description"
+      content="A 2.5D cartoon battlefield action shooter where a modern soldier armed with pistols, shotguns, assault rifles, miniguns, grenades, rocket launchers, and a drivable tank helps a medieval army hold back endless escalating enemy waves."
+    />
+  </head>
+  <body>
+    <main id="game-shell">
+      <canvas id="game-canvas" aria-label="Back to Future Battlefield"></canvas>
+
+      <!-- In-Game Minimalist HUD -->
+      <div id="hud" class="hud hidden">
+        <div class="hud-top">
+          <!-- Top-Left: Vitals & Wave -->
+          <section class="hud-panel vitals-panel" aria-label="Status">
+            <div class="wave-row">
+              <span id="hud-wave" class="wave-pill">WAVE 1</span>
+              <div class="wave-track" title="Wave escalation progress">
+                <div id="hud-wave-bar" class="wave-fill"></div>
+              </div>
+            </div>
+            <div class="stat-bar-row">
+              <span class="bar-label">HERO</span>
+              <div class="bar-track">
+                <div id="hud-player-hp" class="bar-fill hp-fill"></div>
+              </div>
+              <span id="hud-player-hp-text" class="bar-val">130</span>
+            </div>
+            <div class="stat-bar-row">
+              <span class="bar-label camp-label">CAMP</span>
+              <div class="bar-track">
+                <div id="hud-camp-hp" class="bar-fill camp-fill"></div>
+              </div>
+              <span id="hud-camp-hp-text" class="bar-val">1200</span>
+            </div>
+          </section>
+
+          <!-- Top-Center: Compact Battlefield Frontline Strip -->
+          <section class="hud-panel frontline-panel" aria-label="Battlefield Frontline">
+            <div class="frontline-labels">
+              <span class="ally-tag">BLUE <strong id="hud-allies">0</strong></span>
+              <span class="frontline-title">BATTLEFRONT</span>
+              <span class="enemy-tag"><strong id="hud-enemies">0</strong> RED</span>
+            </div>
+            <div class="frontline-track">
+              <div id="frontline-blue" class="frontline-blue"></div>
+              <div id="frontline-tank-pin" class="pin tank-pin" title="Tank"></div>
+              <div id="frontline-player-pin" class="pin player-pin" title="You"></div>
+            </div>
+          </section>
+
+          <!-- Top-Right: Score, Kills, Combo & Controls -->
+          <section class="hud-panel score-panel" aria-label="Score">
+            <div class="score-main">
+              <div class="score-group">
+                <span class="mini-label">SCORE</span>
+                <span id="hud-score" class="score-num">0</span>
+              </div>
+              <div class="score-divider"></div>
+              <div class="score-group">
+                <span class="mini-label">KILLS</span>
+                <span id="hud-kills" class="kills-num">0</span>
+              </div>
+              <span id="hud-combo" class="combo-badge hidden">x2</span>
+            </div>
+            <div class="hud-actions">
+              <button id="btn-mute" class="icon-btn" type="button" title="Toggle Sound (M)">SFX ON</button>
+              <button id="btn-pause" class="icon-btn" type="button" title="Pause (P / Esc)">PAUSE</button>
+            </div>
+          </section>
+        </div>
+
+        <!-- Wave Announcement Banner -->
+        <div id="wave-banner" class="wave-banner hidden">
+          <div id="wave-banner-title" class="wave-banner-title">WAVE 1</div>
+          <div id="wave-banner-sub" class="wave-banner-sub">MEDIEVAL VANGUARD</div>
+        </div>
+
+        <!-- Pickup / Event Toast -->
+        <div id="pickup-toast" class="pickup-toast hidden"></div>
+
+        <!-- Bottom Weapon Hotbar / Tank Bar -->
+        <div class="hud-bottom">
+          <div id="weapon-bar" class="weapon-bar" role="toolbar" aria-label="Modern Arsenal"></div>
+          <div id="tank-bar" class="tank-bar hidden">
+            <span class="tank-badge">ARMORED TANK</span>
+            <span class="tank-hint"><strong>LMB</strong> 75mm Cannon</span>
+            <span class="tank-hint"><strong>RMB / Space</strong> Coax MG</span>
+            <span class="tank-hint"><strong>WASD</strong> Drive &amp; Crush</span>
+            <span class="tank-hint"><strong>E</strong> Exit Tank</span>
+          </div>
+          <div id="controls-strip" class="controls-strip">
+            <span><strong>WASD</strong> Move</span>
+            <span><strong>Mouse</strong> Aim &amp; Shoot</span>
+            <span><strong>RMB / G</strong> Grenade</span>
+            <span><strong>Shift</strong> Dodge Roll</span>
+            <span><strong>E</strong> Tank</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Title Screen Overlay (Floats over live animated battlefield!) -->
+      <section id="title-overlay" class="overlay">
+        <div class="card title-card">
+          <p class="eyebrow">1945 FIREPOWER × 1345 STEEL</p>
+          <h1 class="game-title">BACK TO FUTURE</h1>
+          <p class="tagline">
+            Your medieval Blue Army is outmatched. Grab air-dropped modern weapons, commandeer the battle tank, push the
+            frontline, and turn endless enemy waves into points.
+          </p>
+          <div class="arsenal-preview">
+            <span>Pistol</span>
+            <span>Shotgun</span>
+            <span>Assault Rifle</span>
+            <span>Minigun</span>
+            <span>Frag Grenades</span>
+            <span>RPG</span>
+            <span>Battle Tank</span>
+          </div>
+          <div class="title-actions">
+            <button id="btn-play" class="primary-btn" type="button">DEPLOY TO BATTLE</button>
+            <div id="title-highscore" class="best-pill hidden">BEST: <strong id="title-highscore-val">0</strong></div>
+          </div>
+          <div class="key-grid">
+            <div><kbd>WASD</kbd> Move</div>
+            <div><kbd>LMB</kbd> Fire Weapon</div>
+            <div><kbd>RMB</kbd> / <kbd>G</kbd> Grenade</div>
+            <div><kbd>E</kbd> Enter / Exit Tank</div>
+            <div><kbd>1-5</kbd> / <kbd>Scroll</kbd> Weapons</div>
+            <div><kbd>Shift</kbd> Dodge Roll</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Pause Overlay -->
+      <section id="pause-overlay" class="overlay hidden">
+        <div class="card small-card">
+          <p class="eyebrow">BATTLEFIELD PAUSED</p>
+          <h2 class="overlay-heading">HOLD THE LINE</h2>
+          <div class="pause-actions">
+            <button id="btn-resume" class="primary-btn" type="button">RESUME BATTLE</button>
+            <button id="btn-restart-pause" class="secondary-btn" type="button">RESTART</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Game Over Debrief Overlay -->
+      <section id="gameover-overlay" class="overlay hidden">
+        <div class="card debrief-card">
+          <p id="gameover-reason" class="eyebrow danger">THE ALLIED CAMP HAS FALLEN</p>
+          <h2 class="overlay-heading">BATTLE DEBRIEF</h2>
+
+          <div class="debrief-stats">
+            <div class="debrief-box highlight">
+              <span class="debrief-label">FINAL SCORE</span>
+              <span id="go-score" class="debrief-value">0</span>
+            </div>
+            <div class="debrief-box">
+              <span class="debrief-label">BEST SCORE</span>
+              <span id="go-best" class="debrief-value">0</span>
+            </div>
+            <div class="debrief-box">
+              <span class="debrief-label">WAVE REACHED</span>
+              <span id="go-wave" class="debrief-value">1</span>
+            </div>
+            <div class="debrief-box">
+              <span class="debrief-label">TOTAL KILLS</span>
+              <span id="go-kills" class="debrief-value">0</span>
+            </div>
+          </div>
+
+          <div id="go-breakdown" class="breakdown-row"></div>
+
+          <div class="pause-actions">
+            <button id="btn-retry" class="primary-btn" type="button">DEPLOY AGAIN (R)</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

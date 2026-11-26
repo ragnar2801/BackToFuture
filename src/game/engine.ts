@@ -1,0 +1,2512 @@
+import { SoundEngine } from './audio';
+import {
+  ALLIED_CAMP_MAX_HP,
+  ALLIED_CAMP_X,
+  ALLIED_CAMP_Y,
+  ENEMY_CAMP_X,
+  HORIZON_Y,
+  LOGICAL_HEIGHT,
+  PICKUP_LABELS,
+  PLAYABLE_Y_MAX,
+  PLAYABLE_Y_MIN,
+  PLAYER_MAX_HP,
+  PLAYER_SPEED,
+  TANK_INTERACT_RADIUS,
+  TANK_MAX_HP,
+  TANK_SPEED,
+  UNIT_STATS,
+  WEAPONS,
+  WEAPON_ORDER,
+  WORLD_WIDTH,
+  getRoadCenterY,
+  getRoadHalfWidth,
+} from './constants';
+import { GameRenderer, type RenderState } from './renderer';
+import type {
+  CampState,
+  CloudProp,
+  CorpseProp,
+  Faction,
+  FloatingText,
+  GamePhase,
+  GroundDecal,
+  HudSnapshot,
+  KillBreakdown,
+  Particle,
+  PickupEntity,
+  PickupKind,
+  PlayerState,
+  ProjectileEntity,
+  SceneryProp,
+  SoldierEntity,
+  TankEntity,
+  UnitKind,
+  WeaponId,
+} from './types';
+
+const HIGH_SCORE_KEY = 'back_to_future_high_score_v1';
+
+const WAVE_SUBTITLES = [
+  'MEDIEVAL VANGUARD',
+  'LONGBOW ARCHERS',
+  'IRON PIKE WALL',
+  'HEAVY PLATE KNIGHTS',
+  'WARHORSE CAVALRY',
+  'SIEGE BATTERING RAM!',
+  'THE IRON WARLORD!',
+  'ROYAL CRUSADE',
+  'ENDLESS HORDE',
+];
+
+function seededRandom(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+}
+
+export class GameEngine {
+  private canvas: HTMLCanvasElement;
+  private ctx: CanvasRenderingContext2D;
+  private renderer = new GameRenderer();
+  public sound = new SoundEngine();
+
+  private rafId = 0;
+  private lastTimestamp = 0;
+  private viewW = 1280;
+  private scale = 1;
+  private dpr = 1;
+
+  private phase: GamePhase = 'title';
+  private time = 0;
+  private timeSurvived = 0;
+  private hitstopTimer = 0;
+
+  private nextId = 1;
+  private cameraX = 0;
+  private shakeMag = 0;
+  private shakeX = 0;
+  private shakeY = 0;
+  private recoilBloom = 0;
+
+  // Input state
+  private keys = new Set<string>();
+  private mouseScreenX = 860;
+  private mouseScreenY = 260;
+  private mouseDownLeft = false;
+  private mouseDownRight = false;
+
+  // World entities
+  private player!: PlayerState;
+  private alliedCamp!: CampState;
+  private enemyCampFlagPhase = 1.4;
+  private tanks: TankEntity[] = [];
+  private soldiers: SoldierEntity[] = [];
+  private projectiles: ProjectileEntity[] = [];
+  private pickups: PickupEntity[] = [];
+  private particles: Particle[] = [];
+  private corpses: CorpseProp[] = [];
+  private decals: GroundDecal[] = [];
+  private floatingTexts: FloatingText[] = [];
+  private scenery: SceneryProp[] = [];
+  private clouds: CloudProp[] = [];
+
+  // Wave & Scoring state
+  private score = 0;
+  private highScore = 0;
+  private kills = 0;
+  private wave = 1;
+  private waveElapsed = 0;
+  private waveDuration = 28;
+  private waveKills = 0;
+  private waveKillTarget = 16;
+  private waveBannerText = '';
+  private waveBannerSub = '';
+  private waveBannerTimer = 0;
+  private enemySpawnTimer = 0;
+  private allySpawnTimer = 0;
+  private pickupDropTimer = 10;
+  private tankRespawnTimer = 0;
+  private bossSpawnedForWave = 0;
+
+  private combo = 1;
+  private comboTimer = 0;
+  private burstKillCount = 0;
+  private burstKillWindow = 0;
+  private playerCombatTimer = 0;
+  private gameOverReason = '';
+  private pickupToast = '';
+  private pickupToastTimer = 0;
+  private breakdown!: KillBreakdown;
+
+  private hudCallback: (hud: HudSnapshot) => void;
+  private hudThrottle = 0;
+
+  constructor(canvas: HTMLCanvasElement, onHudUpdate: (hud: HudSnapshot) => void) {
+    this.canvas = canvas;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      throw new Error('Could not initialize 2D canvas context');
+    }
+    this.ctx = ctx;
+    this.hudCallback = onHudUpdate;
+
+    try {
+      const saved = window.localStorage.getItem(HIGH_SCORE_KEY);
+      if (saved) this.highScore = Math.max(0, parseInt(saved, 10) || 0);
+    } catch {
+      // Ignore storage failures in sandboxed frames
+    }
+
+    this.generateWorldScenery();
+    this.setupInitialWorld(true);
+    this.bindEvents();
+    this.handleResize();
+  }
+
+  public startLoop(): void {
+    this.lastTimestamp = performance.now();
+    const tick = (now: number) => {
+      const rawDt = (now - this.lastTimestamp) / 1000;
+      this.lastTimestamp = now;
+      const dt = Math.min(0.05, Math.max(0.001, rawDt));
+
+      this.update(dt);
+      this.render();
+
+      this.rafId = window.requestAnimationFrame(tick);
+    };
+    this.rafId = window.requestAnimationFrame(tick);
+  }
+
+  public destroy(): void {
+    window.cancelAnimationFrame(this.rafId);
+  }
+
+  public startNewGame(): void {
+    this.sound.unlock();
+    this.phase = 'playing';
+    this.setupInitialWorld(false);
+    this.announceWave(1);
+    this.sound.playWaveHorn();
+    this.pushHud(true);
+  }
+
+  public togglePause(): void {
+    if (this.phase === 'playing') {
+      this.phase = 'paused';
+      this.mouseDownLeft = false;
+      this.mouseDownRight = false;
+      this.pushHud(true);
+    } else if (this.phase === 'paused') {
+      this.phase = 'playing';
+      this.pushHud(true);
+    }
+  }
+
+  public selectWeapon(id: WeaponId): void {
+    if (this.phase !== 'playing' || !this.player.alive) return;
+    if (!this.player.unlockedWeapons[id]) return;
+    if (id !== 'pistol' && this.player.ammo[id] <= 0) return;
+    if (this.player.activeWeapon !== id) {
+      this.player.activeWeapon = id;
+      this.player.spinUp = 0;
+      this.pushHud(true);
+    }
+  }
+
+  public toggleMute(): void {
+    this.sound.unlock();
+    this.sound.toggleMute();
+    this.pushHud(true);
+  }
+
+  private generateWorldScenery(): void {
+    const rand = seededRandom(19851345);
+    this.scenery = [];
+    this.clouds = [];
+
+    // Drifting sky clouds
+    for (let i = 0; i < 11; i++) {
+      this.clouds.push({
+        x: rand() * 1900,
+        y: 38 + rand() * 105,
+        scale: 0.72 + rand() * 0.85,
+        speed: 6 + rand() * 11,
+        variant: i,
+      });
+    }
+
+    // Scattered grass tufts, rocks, pebbles, dirt patches across battlefield
+    for (let i = 0; i < 290; i++) {
+      const x = 60 + rand() * (WORLD_WIDTH - 120);
+      const y = PLAYABLE_Y_MIN - 26 + rand() * (LOGICAL_HEIGHT - PLAYABLE_Y_MIN + 10);
+      const roadY = getRoadCenterY(x);
+      const roadHW = getRoadHalfWidth(x);
+      const onRoad = Math.abs(y - roadY) < roadHW * 0.88;
+
+      if (onRoad) {
+        if (rand() < 0.3) {
+          this.scenery.push({
+            x,
+            y,
+            kind: 'pebbles',
+            scale: 0.7 + rand() * 0.5,
+            variant: i,
+          });
+        }
+        continue;
+      }
+
+      const roll = rand();
+      const kind: SceneryProp['kind'] =
+        roll < 0.56 ? 'grass' : roll < 0.76 ? 'rock' : roll < 0.9 ? 'pebbles' : 'dirt_patch';
+      this.scenery.push({
+        x,
+        y,
+        kind,
+        scale: 0.72 + rand() * 0.65,
+        variant: i,
+      });
+    }
+
+    this.scenery.sort((a, b) => a.y - b.y);
+  }
+
+  private setupInitialWorld(isTitleDemo: boolean): void {
+    this.nextId = 1;
+    this.timeSurvived = 0;
+    this.hitstopTimer = 0;
+    this.shakeMag = 0;
+    this.recoilBloom = 0;
+
+    this.score = 0;
+    this.kills = 0;
+    this.wave = 1;
+    this.waveElapsed = 0;
+    this.waveDuration = 28;
+    this.waveKills = 0;
+    this.waveKillTarget = 16;
+    this.waveBannerTimer = 0;
+    this.enemySpawnTimer = 1.4;
+    this.allySpawnTimer = 2.6;
+    this.pickupDropTimer = 11.5;
+    this.tankRespawnTimer = 0;
+    this.bossSpawnedForWave = 0;
+    this.combo = 1;
+    this.comboTimer = 0;
+    this.burstKillCount = 0;
+    this.burstKillWindow = 0;
+    this.playerCombatTimer = 0;
+    this.gameOverReason = '';
+    this.pickupToast = '';
+    this.pickupToastTimer = 0;
+
+    this.breakdown = {
+      footman: 0,
+      archer: 0,
+      spearman: 0,
+      knight: 0,
+      cavalry: 0,
+      siege_ram: 0,
+      warlord: 0,
+      roadkills: 0,
+    };
+
+    this.alliedCamp = {
+      x: ALLIED_CAMP_X,
+      y: ALLIED_CAMP_Y,
+      hp: ALLIED_CAMP_MAX_HP,
+      maxHp: ALLIED_CAMP_MAX_HP,
+      hitFlash: 0,
+      flagPhase: 0,
+    };
+
+    const startX = 435;
+    const startY = getRoadCenterY(startX) + 18;
+    this.player = {
+      x: startX,
+      y: startY,
+      vx: 0,
+      vy: 0,
+      hp: PLAYER_MAX_HP,
+      maxHp: PLAYER_MAX_HP,
+      aimAngle: -0.05,
+      facing: 1,
+      activeWeapon: 'pistol',
+      unlockedWeapons: {
+        pistol: true,
+        shotgun: false,
+        rifle: false,
+        minigun: false,
+        rocket: false,
+      },
+      ammo: {
+        pistol: Infinity,
+        shotgun: 0,
+        rifle: 0,
+        minigun: 0,
+        rocket: 0,
+      },
+      grenades: 4,
+      maxGrenades: 12,
+      fireCooldown: 0,
+      grenadeCooldown: 0,
+      weaponRecoil: 0,
+      spinUp: 0,
+      walkPhase: 0,
+      inTankId: null,
+      dodgeTimer: 0,
+      dodgeCooldown: 0,
+      dodgeDirX: 1,
+      dodgeDirY: 0,
+      invulnTimer: 0,
+      hitFlash: 0,
+      muzzleFlashTimer: 0,
+      alive: true,
+    };
+
+    this.tanks = [];
+    this.soldiers = [];
+    this.projectiles = [];
+    this.pickups = [];
+    this.particles = [];
+    this.corpses = [];
+    this.decals = [];
+    this.floatingTexts = [];
+
+    // Signature drivable Tank right near the Allied Camp road (just like image.png!)
+    this.spawnTank(480, getRoadCenterY(480) + 10, false);
+
+    // Inviting military supply crates ahead on the road to pick up as you push forward!
+    this.spawnPickup('rifle', 860, getRoadCenterY(860) + 64, false);
+    this.spawnPickup('grenade', 1240, getRoadCenterY(1240) - 34, false);
+    this.spawnPickup('shotgun', 1620, getRoadCenterY(1620) + 52, false);
+    this.spawnPickup('rocket', 2080, getRoadCenterY(2080) - 24, false);
+
+    // Starting clash of Blue Allies vs Red Enemies (echoing image.png immediately!)
+    const initialAllies: [number, number, UnitKind][] = [
+      [470, getRoadCenterY(470) - 90, 'footman'],
+      [755, getRoadCenterY(755) + 46, 'footman'],
+      [785, getRoadCenterY(785) + 20, 'footman'],
+      [1045, getRoadCenterY(1045) - 6, 'footman'],
+      [1095, getRoadCenterY(1095) - 34, 'footman'],
+      [1135, getRoadCenterY(1135) - 18, 'footman'],
+    ];
+    for (const [ax, ay, kind] of initialAllies) {
+      this.spawnSoldier('ally', kind, ax, ay);
+    }
+
+    const initialEnemies: [number, number, UnitKind][] = [
+      [1190, getRoadCenterY(1190) - 12, 'footman'],
+      [1235, getRoadCenterY(1235) + 22, 'footman'],
+      [1295, getRoadCenterY(1295) - 36, 'footman'],
+      [1385, getRoadCenterY(1385) + 8, 'footman'],
+      [1480, getRoadCenterY(1480) - 20, 'footman'],
+    ];
+    for (const [ex, ey, kind] of initialEnemies) {
+      this.spawnSoldier('enemy', kind, ex, ey);
+    }
+
+    this.cameraX = isTitleDemo ? 0 : Math.max(0, this.player.x - this.viewW * 0.34);
+  }
+
+  private bindEvents(): void {
+    window.addEventListener('resize', () => this.handleResize());
+
+    window.addEventListener('keydown', (e) => {
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
+        e.preventDefault();
+      }
+      this.keys.add(e.code);
+      this.sound.unlock();
+
+      if (e.repeat) return;
+
+      if (e.code === 'KeyM') {
+        this.toggleMute();
+        return;
+      }
+
+      if (e.code === 'Escape' || e.code === 'KeyP') {
+        if (this.phase === 'playing' || this.phase === 'paused') {
+          this.togglePause();
+        }
+        return;
+      }
+
+      if (e.code === 'KeyR' && this.phase === 'gameover') {
+        this.startNewGame();
+        return;
+      }
+
+      if (this.phase === 'title' && (e.code === 'Enter' || e.code === 'Space')) {
+        this.startNewGame();
+        return;
+      }
+
+      if (this.phase !== 'playing' || !this.player.alive) return;
+
+      if (e.code === 'KeyE') {
+        this.tryToggleTank();
+      } else if (e.code === 'KeyG') {
+        this.tryThrowGrenade();
+      } else if (e.code === 'ShiftLeft' || e.code === 'ShiftRight' || e.code === 'Space') {
+        if (this.player.inTankId === null) {
+          this.tryDodgeRoll();
+        }
+      } else if (e.code === 'Digit1') {
+        this.selectWeapon('pistol');
+      } else if (e.code === 'Digit2') {
+        this.selectWeapon('shotgun');
+      } else if (e.code === 'Digit3') {
+        this.selectWeapon('rifle');
+      } else if (e.code === 'Digit4') {
+        this.selectWeapon('minigun');
+      } else if (e.code === 'Digit5') {
+        this.selectWeapon('rocket');
+      } else if (e.code === 'KeyQ') {
+        this.cycleWeapon(1);
+      }
+    });
+
+    window.addEventListener('keyup', (e) => {
+      this.keys.delete(e.code);
+    });
+
+    window.addEventListener('blur', () => {
+      this.keys.clear();
+      this.mouseDownLeft = false;
+      this.mouseDownRight = false;
+    });
+
+    this.canvas.addEventListener('mousemove', (e) => {
+      const rect = this.canvas.getBoundingClientRect();
+      this.mouseScreenX = (e.clientX - rect.left) / this.scale;
+      this.mouseScreenY = (e.clientY - rect.top) / this.scale;
+    });
+
+    this.canvas.addEventListener('mousedown', (e) => {
+      this.sound.unlock();
+      const rect = this.canvas.getBoundingClientRect();
+      this.mouseScreenX = (e.clientX - rect.left) / this.scale;
+      this.mouseScreenY = (e.clientY - rect.top) / this.scale;
+
+      if (e.button === 0) {
+        this.mouseDownLeft = true;
+      } else if (e.button === 2) {
+        this.mouseDownRight = true;
+        if (this.phase === 'playing' && this.player.alive && this.player.inTankId === null) {
+          this.tryThrowGrenade();
+        }
+      }
+    });
+
+    window.addEventListener('mouseup', (e) => {
+      if (e.button === 0) this.mouseDownLeft = false;
+      if (e.button === 2) this.mouseDownRight = false;
+    });
+
+    this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    this.canvas.addEventListener(
+      'wheel',
+      (e) => {
+        if (this.phase !== 'playing' || !this.player.alive) return;
+        e.preventDefault();
+        this.cycleWeapon(e.deltaY > 0 ? 1 : -1);
+      },
+      { passive: false }
+    );
+  }
+
+  public handleResize(): void {
+    const parent = this.canvas.parentElement;
+    const cssW = Math.max(320, parent ? parent.clientWidth : window.innerWidth);
+    const cssH = Math.max(240, parent ? parent.clientHeight : window.innerHeight);
+
+    this.dpr = Math.min(2, window.devicePixelRatio || 1);
+    this.scale = cssH / LOGICAL_HEIGHT;
+    this.viewW = Math.max(840, Math.min(1680, Math.round(cssW / this.scale)));
+
+    // If aspect ratio is very narrow, scale by width instead so viewW stays playable
+    if (cssW / this.scale < 840) {
+      this.viewW = 840;
+      this.scale = cssW / this.viewW;
+    }
+
+    this.canvas.width = Math.round(cssW * this.dpr);
+    this.canvas.height = Math.round(cssH * this.dpr);
+  }
+
+  private cycleWeapon(dir: 1 | -1): void {
+    const available = WEAPON_ORDER.filter(
+      (id) => this.player.unlockedWeapons[id] && (id === 'pistol' || this.player.ammo[id] > 0)
+    );
+    if (available.length <= 1) return;
+    const idx = available.indexOf(this.player.activeWeapon);
+    const next = available[(idx + dir + available.length) % available.length];
+    this.selectWeapon(next);
+  }
+
+  private update(dt: number): void {
+    this.time += dt;
+
+    // Drifting sky clouds always animate smoothly
+    for (const cl of this.clouds) {
+      cl.x += cl.speed * dt;
+    }
+
+    if (this.phase === 'paused') {
+      return;
+    }
+
+    if (this.hitstopTimer > 0) {
+      this.hitstopTimer = Math.max(0, this.hitstopTimer - dt);
+      this.updateShake(dt);
+      return;
+    }
+
+    // Live title-screen attract skirmish!
+    if (this.phase === 'title') {
+      this.updateTitleAttract(dt);
+      this.pushHud(false, dt);
+      return;
+    }
+
+    if (this.phase === 'gameover') {
+      this.updateParticlesAndProps(dt);
+      this.updateShake(dt);
+      this.pushHud(false, dt);
+      return;
+    }
+
+    // Playing state
+    this.timeSurvived += dt;
+    this.playerCombatTimer += dt;
+    if (this.waveBannerTimer > 0) this.waveBannerTimer = Math.max(0, this.waveBannerTimer - dt);
+    if (this.pickupToastTimer > 0) this.pickupToastTimer = Math.max(0, this.pickupToastTimer - dt);
+    if (this.alliedCamp.hitFlash > 0) this.alliedCamp.hitFlash = Math.max(0, this.alliedCamp.hitFlash - dt);
+
+    if (this.comboTimer > 0) {
+      this.comboTimer = Math.max(0, this.comboTimer - dt);
+      if (this.comboTimer === 0) this.combo = 1;
+    }
+    if (this.burstKillWindow > 0) {
+      this.burstKillWindow = Math.max(0, this.burstKillWindow - dt);
+      if (this.burstKillWindow === 0) this.burstKillCount = 0;
+    }
+
+    this.recoilBloom = Math.max(0, this.recoilBloom - dt * 3.8);
+
+    this.updateWaveDirector(dt);
+    this.updatePlayerAndTank(dt);
+    this.updatePickups(dt);
+    this.updateSoldiers(dt);
+    this.updateProjectiles(dt);
+    this.updateParticlesAndProps(dt);
+    this.updateCamera(dt);
+    this.updateShake(dt);
+    this.pushHud(false, dt);
+  }
+
+  private updateTitleAttract(dt: number): void {
+    // Keep a scenic live skirmish going on the title screen
+    this.allySpawnTimer -= dt;
+    this.enemySpawnTimer -= dt;
+    const allies = this.soldiers.filter((s) => s.faction === 'ally').length;
+    const enemies = this.soldiers.filter((s) => s.faction === 'enemy').length;
+    if (this.allySpawnTimer <= 0 && allies < 9) {
+      this.allySpawnTimer = 2.6;
+      this.spawnSoldier('ally', 'footman', ALLIED_CAMP_X + 60, getRoadCenterY(ALLIED_CAMP_X + 60) + (Math.random() - 0.5) * 110);
+    }
+    if (this.enemySpawnTimer <= 0 && enemies < 10) {
+      this.enemySpawnTimer = 2.4;
+      this.spawnSoldier('enemy', Math.random() < 0.25 ? 'archer' : 'footman', this.viewW + 40, getRoadCenterY(this.viewW) + (Math.random() - 0.5) * 120);
+    }
+    this.alliedCamp.hp = ALLIED_CAMP_MAX_HP;
+    this.updateSoldiers(dt, true);
+    this.updateProjectiles(dt);
+    this.updateParticlesAndProps(dt);
+  }
+
+  private updateWaveDirector(dt: number): void {
+    this.waveElapsed += dt;
+
+    // Advance endless escalating wave when either kill target or wave clock hits!
+    if (this.waveKills >= this.waveKillTarget || this.waveElapsed >= this.waveDuration) {
+      this.wave++;
+      this.waveElapsed = 0;
+      this.waveKills = 0;
+      this.waveDuration = Math.min(44, 28 + this.wave * 2);
+      this.waveKillTarget = Math.round(14 + this.wave * 6.5);
+      this.announceWave(this.wave);
+      this.sound.playWaveHorn();
+
+      // Wave milestone reward: camp field repairs + allied rally squad!
+      this.alliedCamp.hp = Math.min(this.alliedCamp.maxHp, this.alliedCamp.hp + 120);
+      this.spawnFloatingText(ALLIED_CAMP_X + 40, ALLIED_CAMP_Y - 120, 'REINFORCEMENTS!', '#66b5ff', 16);
+
+      const rallyCount = Math.min(5, 2 + Math.floor(this.wave / 2));
+      for (let i = 0; i < rallyCount; i++) {
+        const allyKind: UnitKind =
+          this.wave >= 4 && i === 0
+            ? 'knight'
+            : this.wave >= 3 && i === 1
+              ? 'spearman'
+              : this.wave >= 2 && i === 2
+                ? 'archer'
+                : 'footman';
+        this.spawnSoldier(
+          'ally',
+          allyKind,
+          ALLIED_CAMP_X + 40 + i * 28,
+          getRoadCenterY(ALLIED_CAMP_X + 60) + (Math.random() - 0.5) * 120
+        );
+      }
+
+      // Bonus parachute crate on every wave transition!
+      this.dropParachuteCrate();
+    }
+
+    // Spawn Boss / Siege Ram once per wave starting Wave 6+
+    if (this.wave >= 6 && this.bossSpawnedForWave < this.wave && this.waveElapsed > 6) {
+      this.bossSpawnedForWave = this.wave;
+      const bossKind: UnitKind = this.wave % 2 === 0 ? 'siege_ram' : 'warlord';
+      const spawnX = Math.min(ENEMY_CAMP_X - 40, Math.max(this.cameraX + this.viewW + 120, 1750));
+      this.spawnSoldier('enemy', bossKind, spawnX, getRoadCenterY(spawnX));
+      this.sound.playWaveHorn();
+      this.showToast(
+        bossKind === 'siege_ram' ? 'WARNING: SIEGE BATTERING RAM APPROACHING!' : 'WARNING: IRON WARLORD HAS ENTERED THE FIELD!'
+      );
+    }
+
+    // Enemy continuous escalating spawner
+    this.enemySpawnTimer -= dt;
+    const enemyCount = this.soldiers.reduce((acc, s) => acc + (s.faction === 'enemy' ? 1 : 0), 0);
+    const maxEnemies = Math.min(46, 14 + this.wave * 4);
+
+    if (this.enemySpawnTimer <= 0 && enemyCount < maxEnemies) {
+      const baseInterval = Math.max(0.75, 2.45 - this.wave * 0.19);
+      this.enemySpawnTimer = baseInterval * (0.75 + Math.random() * 0.5);
+
+      // Spawn a small squad of 1..3 enemies
+      const squadSize = Math.min(4, 1 + Math.floor((this.wave + Math.random() * 2) / 2.2));
+      const minSpawnX = Math.min(ENEMY_CAMP_X - 60, Math.max(this.cameraX + this.viewW + 85, this.player.x + 640));
+
+      for (let i = 0; i < squadSize; i++) {
+        if (enemyCount + i >= maxEnemies) break;
+        const kind = this.pickEnemyKindForWave(this.wave);
+        const sx = Math.min(ENEMY_CAMP_X - 20, minSpawnX + i * 38 + Math.random() * 55);
+        const sy = Math.max(
+          PLAYABLE_Y_MIN + 14,
+          Math.min(PLAYABLE_Y_MAX - 14, getRoadCenterY(sx) + (Math.random() - 0.5) * 210)
+        );
+        this.spawnSoldier('enemy', kind, sx, sy);
+      }
+    }
+
+    // Allied continuous steady reinforcements from ALLIED CAMP
+    this.allySpawnTimer -= dt;
+    const allyCount = this.soldiers.reduce((acc, s) => acc + (s.faction === 'ally' ? 1 : 0), 0);
+    const maxAllies = Math.min(20, 10 + Math.floor(this.wave * 1.1));
+    if (this.allySpawnTimer <= 0 && allyCount < maxAllies) {
+      this.allySpawnTimer = Math.max(1.75, 3.3 - Math.min(1.1, this.combo * 0.16));
+      const r = Math.random();
+      let kind: UnitKind = 'footman';
+      if (this.wave >= 4 && r < 0.18) kind = 'knight';
+      else if (this.wave >= 3 && r < 0.38) kind = 'spearman';
+      else if (this.wave >= 2 && r < 0.56) kind = 'archer';
+
+      const sy = Math.max(
+        PLAYABLE_Y_MIN + 20,
+        Math.min(PLAYABLE_Y_MAX - 20, getRoadCenterY(ALLIED_CAMP_X + 70) + (Math.random() - 0.5) * 165)
+      );
+      this.spawnSoldier('ally', kind, ALLIED_CAMP_X + 45, sy);
+    }
+
+    // Periodic parachute supply crates
+    this.pickupDropTimer -= dt;
+    if (this.pickupDropTimer <= 0) {
+      this.pickupDropTimer = Math.max(8.5, 13.5 - this.wave * 0.35);
+      if (this.pickups.length < 7) {
+        this.dropParachuteCrate();
+      }
+    }
+
+    // Tank replacement airdrop if all tanks destroyed
+    if (this.tanks.length === 0) {
+      if (this.tankRespawnTimer <= 0) {
+        this.tankRespawnTimer = 28;
+      } else {
+        this.tankRespawnTimer -= dt;
+        if (this.tankRespawnTimer <= 0) {
+          const dropX = Math.max(420, Math.min(WORLD_WIDTH - 480, this.player.x + 120));
+          const dropY = getRoadCenterY(dropX);
+          this.spawnTank(dropX, dropY, true);
+          this.showToast('TANK AIRDROP INBOUND! PRESS [E] TO BOARD!');
+          this.sound.playPickup(true);
+        }
+      }
+    }
+  }
+
+  private pickEnemyKindForWave(wave: number): UnitKind {
+    const r = Math.random();
+    if (wave === 1) return 'footman';
+    if (wave === 2) return r < 0.32 ? 'archer' : 'footman';
+    if (wave === 3) {
+      if (r < 0.25) return 'spearman';
+      if (r < 0.5) return 'archer';
+      return 'footman';
+    }
+    if (wave === 4) {
+      if (r < 0.2) return 'knight';
+      if (r < 0.42) return 'spearman';
+      if (r < 0.65) return 'archer';
+      return 'footman';
+    }
+    if (wave === 5) {
+      if (r < 0.18) return 'cavalry';
+      if (r < 0.38) return 'knight';
+      if (r < 0.58) return 'spearman';
+      if (r < 0.78) return 'archer';
+      return 'footman';
+    }
+    // Wave 6+ intense combined arms!
+    if (r < 0.06 && wave >= 7) return 'siege_ram';
+    if (r < 0.24) return 'cavalry';
+    if (r < 0.48) return 'knight';
+    if (r < 0.68) return 'spearman';
+    if (r < 0.85) return 'archer';
+    return 'footman';
+  }
+
+  private dropParachuteCrate(): void {
+    const activeTank = this.tanks[0];
+    const needHeal =
+      this.player.hp < this.player.maxHp * 0.62 ||
+      this.alliedCamp.hp < this.alliedCamp.maxHp * 0.68 ||
+      (activeTank && activeTank.hp < activeTank.maxHp * 0.45);
+
+    const pool: PickupKind[] = ['rifle', 'shotgun', 'grenade', 'rocket', 'ammo_all'];
+    if (this.wave >= 2) pool.push('minigun', 'rocket');
+    if (this.wave >= 3) pool.push('minigun');
+    if (needHeal) pool.push('medkit', 'medkit');
+    else pool.push('medkit');
+
+    const kind = pool[Math.floor(Math.random() * pool.length)];
+    const anchorX = this.player.x;
+    const dropX = Math.max(
+      340,
+      Math.min(WORLD_WIDTH - 320, anchorX + 120 + (Math.random() - 0.3) * 440)
+    );
+    const dropY = Math.max(
+      PLAYABLE_Y_MIN + 26,
+      Math.min(PLAYABLE_Y_MAX - 24, getRoadCenterY(dropX) + (Math.random() - 0.5) * 180)
+    );
+
+    this.spawnPickup(kind, dropX, dropY, true);
+  }
+
+  private announceWave(wave: number): void {
+    this.waveBannerText = `WAVE ${wave}`;
+    this.waveBannerSub = WAVE_SUBTITLES[Math.min(WAVE_SUBTITLES.length - 1, wave - 1)];
+    this.waveBannerTimer = 3.2;
+  }
+
+  private showToast(msg: string): void {
+    this.pickupToast = msg;
+    this.pickupToastTimer = 2.8;
+  }
+
+  private updatePlayerAndTank(dt: number): void {
+    const p = this.player;
+    if (!p.alive) return;
+
+    p.fireCooldown = Math.max(0, p.fireCooldown - dt);
+    p.grenadeCooldown = Math.max(0, p.grenadeCooldown - dt);
+    p.weaponRecoil = Math.max(0, p.weaponRecoil - dt * 42);
+    p.dodgeCooldown = Math.max(0, p.dodgeCooldown - dt);
+    p.invulnTimer = Math.max(0, p.invulnTimer - dt);
+    p.hitFlash = Math.max(0, p.hitFlash - dt);
+    p.muzzleFlashTimer = Math.max(0, p.muzzleFlashTimer - dt);
+
+    // Gentle out-of-combat health recovery
+    if (this.playerCombatTimer > 4.5 && p.hp < p.maxHp) {
+      p.hp = Math.min(p.maxHp, p.hp + 4.5 * dt);
+    }
+
+    // Update all tanks (parachuting, cooldowns, damage smoke)
+    for (const tank of this.tanks) {
+      tank.cannonCooldown = Math.max(0, tank.cannonCooldown - dt);
+      tank.coaxCooldown = Math.max(0, tank.coaxCooldown - dt);
+      tank.cannonRecoil = Math.max(0, tank.cannonRecoil - dt * 36);
+      tank.hitFlash = Math.max(0, tank.hitFlash - dt);
+
+      for (const [eid, cd] of tank.roadkillCooldowns) {
+        if (cd - dt <= 0) tank.roadkillCooldowns.delete(eid);
+        else tank.roadkillCooldowns.set(eid, cd - dt);
+      }
+
+      if (tank.parachuteZ > 0) {
+        tank.parachuteSway += dt * 2.4;
+        tank.parachuteZ = Math.max(0, tank.parachuteZ - 115 * dt);
+        if (tank.parachuteZ === 0) {
+          this.addShake(7);
+          this.spawnDustBurst(tank.x, tank.y + 8, 18);
+          this.sound.playExplosion(0.45);
+        }
+      }
+
+      // Critical damage dark engine smoke
+      if (tank.hp < tank.maxHp * 0.35) {
+        tank.smokeTimer -= dt;
+        if (tank.smokeTimer <= 0) {
+          tank.smokeTimer = 0.09;
+          this.particles.push({
+            x: tank.x - tank.facing * 26 + (Math.random() - 0.5) * 12,
+            y: tank.y - 26,
+            z: 8,
+            vx: -tank.facing * 20 + (Math.random() - 0.5) * 18,
+            vy: -14,
+            vz: 48,
+            size: 7,
+            endSize: 22,
+            color: tank.hp < tank.maxHp * 0.18 && Math.random() < 0.35 ? '#ff7b29' : '#3a3b38',
+            alpha: 0.72,
+            life: 0.7,
+            maxLife: 0.7,
+            gravity: -15,
+            kind: 'smoke',
+            rotation: 0,
+            vRot: 0,
+          });
+        }
+      }
+    }
+
+    const worldMouseX = this.cameraX + this.mouseScreenX;
+    const worldMouseY = this.mouseScreenY;
+
+    // Movement Input Vector
+    let moveX = 0;
+    let moveY = 0;
+    if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) moveX -= 1;
+    if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) moveX += 1;
+    if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) moveY -= 1;
+    if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) moveY += 1;
+    const mag = Math.hypot(moveX, moveY);
+    if (mag > 0) {
+      moveX /= mag;
+      moveY /= mag;
+    }
+
+    // DRIVING TANK MODE
+    if (p.inTankId !== null) {
+      const tank = this.tanks.find((t) => t.id === p.inTankId);
+      if (!tank) {
+        p.inTankId = null;
+      } else {
+        tank.vx = moveX * TANK_SPEED;
+        tank.vy = moveY * TANK_SPEED * 0.78;
+        tank.x = Math.max(ALLIED_CAMP_X + 75, Math.min(WORLD_WIDTH - 155, tank.x + tank.vx * dt));
+        tank.y = Math.max(PLAYABLE_Y_MIN + 10, Math.min(PLAYABLE_Y_MAX - 8, tank.y + tank.vy * dt));
+
+        const speed = Math.hypot(tank.vx, tank.vy);
+        if (Math.abs(tank.vx) > 8) {
+          tank.facing = tank.vx >= 0 ? 1 : -1;
+        }
+        if (speed > 10) {
+          tank.treadOffset += speed * dt * tank.facing * 0.55;
+          tank.chassisBounce += dt * 19;
+          tank.trackTimer -= dt;
+          if (tank.trackTimer <= 0) {
+            tank.trackTimer = 0.085;
+            this.addDecal({
+              x: tank.x,
+              y: tank.y + 4,
+              kind: 'track',
+              radius: 14,
+              angle: Math.atan2(tank.vy, tank.vx),
+              alpha: 0.45,
+              life: 16,
+              maxLife: 16,
+            });
+          }
+        }
+
+        // Sync player position to tank
+        p.x = tank.x;
+        p.y = tank.y;
+        p.vx = tank.vx;
+        p.vy = tank.vy;
+
+        // Smooth turret rotation toward cursor
+        const turretY = tank.y - 44;
+        const desired = Math.atan2(worldMouseY - turretY, worldMouseX - tank.x);
+        const diff = Math.atan2(Math.sin(desired - tank.turretAngle), Math.cos(desired - tank.turretAngle));
+        tank.turretAngle += diff * Math.min(1, dt * 11);
+
+        // Tank ROADKILL crushing enemy infantry!
+        if (speed > 45) {
+          for (const s of this.soldiers) {
+            if (s.faction !== 'enemy') continue;
+            if (tank.roadkillCooldowns.has(s.id)) continue;
+            const dx = s.x - tank.x;
+            const dy = (s.y - tank.y) * 1.65;
+            if (Math.hypot(dx, dy) < 52 + UNIT_STATS[s.kind].radius * 0.5) {
+              tank.roadkillCooldowns.set(s.id, 0.55);
+              const crushDmg = s.kind === 'siege_ram' || s.kind === 'warlord' ? 55 : 135;
+              const wasAlive = s.hp > 0;
+              this.damageSoldier(s, crushDmg, tank.vx * 1.9, tank.vy * 1.4 - 60, 1.0, true);
+              this.addShake(4);
+              this.sound.playHit();
+              if (wasAlive && s.hp <= 0) {
+                this.breakdown.roadkills++;
+                this.score += 50 * this.combo;
+                this.spawnFloatingText(s.x, s.y - 52, 'CRUSH! +50', '#96f255', 14);
+              }
+            }
+          }
+        }
+
+        // Fire 75mm Main Cannon (Left Click)
+        if (this.mouseDownLeft && tank.cannonCooldown <= 0) {
+          this.fireTankCannon(tank);
+        }
+
+        // Fire Coaxial Machine Gun (Right Click or Space)
+        if ((this.mouseDownRight || this.keys.has('Space')) && tank.coaxCooldown <= 0) {
+          this.fireTankCoax(tank);
+        }
+
+        return;
+      }
+    }
+
+    // ON-FOOT MODE
+    if (p.dodgeTimer > 0) {
+      p.dodgeTimer = Math.max(0, p.dodgeTimer - dt);
+      p.vx = p.dodgeDirX * PLAYER_SPEED * 2.15;
+      p.vy = p.dodgeDirY * PLAYER_SPEED * 1.85;
+    } else {
+      p.vx = moveX * PLAYER_SPEED;
+      p.vy = moveY * PLAYER_SPEED * 0.85;
+    }
+
+    p.x = Math.max(ALLIED_CAMP_X + 36, Math.min(WORLD_WIDTH - 135, p.x + p.vx * dt));
+    p.y = Math.max(PLAYABLE_Y_MIN, Math.min(PLAYABLE_Y_MAX, p.y + p.vy * dt));
+
+    const speed = Math.hypot(p.vx, p.vy);
+    if (speed > 10) {
+      p.walkPhase += dt * 13.5;
+    }
+
+    // Aim toward mouse cursor
+    const shoulderY = p.y - 28;
+    p.aimAngle = Math.atan2(worldMouseY - shoulderY, worldMouseX - p.x);
+    p.facing = Math.cos(p.aimAngle) >= 0 ? 1 : -1;
+
+    // Firing active modern weapon
+    const wep = WEAPONS[p.activeWeapon];
+    if (this.mouseDownLeft && p.dodgeTimer <= 0) {
+      if (wep.spinUpTime && p.spinUp < wep.spinUpTime) {
+        p.spinUp += dt;
+      } else if (p.fireCooldown <= 0) {
+        this.firePlayerWeapon();
+      }
+    } else {
+      p.spinUp = Math.max(0, p.spinUp - dt * 1.4);
+    }
+  }
+
+  private tryDodgeRoll(): void {
+    const p = this.player;
+    if (p.dodgeCooldown > 0 || p.dodgeTimer > 0) return;
+
+    let dx = 0;
+    let dy = 0;
+    if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) dx -= 1;
+    if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) dx += 1;
+    if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) dy -= 1;
+    if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) dy += 1;
+    const m = Math.hypot(dx, dy);
+    if (m > 0) {
+      dx /= m;
+      dy /= m;
+    } else {
+      dx = p.facing;
+      dy = 0;
+    }
+
+    p.dodgeDirX = dx;
+    p.dodgeDirY = dy;
+    p.dodgeTimer = 0.28;
+    p.dodgeCooldown = 0.85;
+    p.invulnTimer = Math.max(p.invulnTimer, 0.34);
+    this.sound.playDodge();
+    this.spawnDustBurst(p.x, p.y, 7);
+  }
+
+  private tryToggleTank(): void {
+    const p = this.player;
+    if (p.inTankId !== null) {
+      const tank = this.tanks.find((t) => t.id === p.inTankId);
+      if (tank) {
+        tank.occupied = false;
+        p.x = tank.x - tank.facing * 22;
+        p.y = Math.min(PLAYABLE_Y_MAX - 10, tank.y + 38);
+      }
+      p.inTankId = null;
+      p.invulnTimer = 0.35;
+      this.sound.playTankToggle(false);
+      this.pushHud(true);
+      return;
+    }
+
+    // Find closest grounded tank within interact radius
+    let nearest: TankEntity | null = null;
+    let bestDist = TANK_INTERACT_RADIUS;
+    for (const t of this.tanks) {
+      if (t.parachuteZ > 2) continue;
+      const d = Math.hypot(t.x - p.x, t.y - p.y);
+      if (d <= bestDist) {
+        bestDist = d;
+        nearest = t;
+      }
+    }
+    if (nearest) {
+      nearest.occupied = true;
+      p.inTankId = nearest.id;
+      p.x = nearest.x;
+      p.y = nearest.y;
+      this.sound.playTankToggle(true);
+      this.showToast('TANK BOARDED! LMB: 75mm CANNON • RMB/SPACE: COAX MG');
+      this.pushHud(true);
+    }
+  }
+
+  private firePlayerWeapon(): void {
+    const p = this.player;
+    const wep = WEAPONS[p.activeWeapon];
+
+    if (wep.id !== 'pistol' && p.ammo[wep.id] <= 0) {
+      this.fallbackToAvailableWeapon();
+      return;
+    }
+
+    if (wep.id !== 'pistol') {
+      p.ammo[wep.id] = Math.max(0, p.ammo[wep.id] - 1);
+    }
+
+    p.fireCooldown = wep.fireRate;
+    p.weaponRecoil = wep.recoilKick;
+    p.muzzleFlashTimer = 0.055;
+    this.recoilBloom = Math.min(1.4, this.recoilBloom + (wep.id === 'shotgun' || wep.id === 'rocket' ? 0.85 : 0.25));
+    this.sound.playWeapon(wep.id);
+
+    const originX = p.x + Math.cos(p.aimAngle) * wep.muzzleOffset;
+    const originY = p.y - 28 + Math.sin(p.aimAngle) * wep.muzzleOffset;
+
+    if (wep.id === 'rocket') {
+      this.addShake(6.5);
+      this.projectiles.push({
+        id: this.nextId++,
+        kind: 'rocket',
+        faction: 'ally',
+        x: originX,
+        y: originY + 22,
+        z: 22,
+        vx: Math.cos(p.aimAngle) * wep.speed,
+        vy: Math.sin(p.aimAngle) * wep.speed,
+        vz: 0,
+        prevX: originX,
+        prevY: originY + 22,
+        prevZ: 22,
+        damage: wep.damage,
+        knockback: wep.knockback,
+        armorPiercing: wep.armorPiercing,
+        explosiveRadius: wep.explosiveRadius,
+        life: wep.range / wep.speed,
+        maxLife: wep.range / wep.speed,
+        color: wep.tracerColor,
+        bounces: 0,
+        smokeTimer: 0,
+        rotation: p.aimAngle,
+      });
+      // Backblast smoke puff
+      for (let i = 0; i < 6; i++) {
+        this.particles.push({
+          x: p.x - Math.cos(p.aimAngle) * 20,
+          y: p.y - 26 - Math.sin(p.aimAngle) * 14,
+          z: 0,
+          vx: -Math.cos(p.aimAngle) * (80 + Math.random() * 60),
+          vy: -Math.sin(p.aimAngle) * 40 + (Math.random() - 0.5) * 35,
+          vz: 18,
+          size: 6,
+          endSize: 20,
+          color: '#d4d0c5',
+          alpha: 0.72,
+          life: 0.45,
+          maxLife: 0.45,
+          gravity: -10,
+          kind: 'smoke',
+          rotation: 0,
+          vRot: 0,
+        });
+      }
+    } else {
+      if (wep.id === 'shotgun') this.addShake(4.8);
+      else if (wep.id === 'minigun') this.addShake(1.6);
+      else if (wep.id === 'rifle') this.addShake(1.2);
+
+      for (let i = 0; i < wep.pellets; i++) {
+        const spread = (Math.random() - 0.5) * wep.spread;
+        const ang = p.aimAngle + spread;
+        const spd = wep.speed * (0.94 + Math.random() * 0.12);
+        this.projectiles.push({
+          id: this.nextId++,
+          kind: wep.pellets > 1 ? 'pellet' : 'bullet',
+          faction: 'ally',
+          x: originX,
+          y: originY + 26,
+          z: 26,
+          vx: Math.cos(ang) * spd,
+          vy: Math.sin(ang) * spd,
+          vz: 0,
+          prevX: originX,
+          prevY: originY + 26,
+          prevZ: 26,
+          damage: wep.damage,
+          knockback: wep.knockback,
+          armorPiercing: wep.armorPiercing,
+          explosiveRadius: 0,
+          life: wep.range / spd,
+          maxLife: wep.range / spd,
+          color: wep.tracerColor,
+          bounces: 0,
+          smokeTimer: 0,
+          rotation: ang,
+        });
+      }
+
+      // Eject brass shell casing!
+      this.particles.push({
+        x: p.x + Math.cos(p.aimAngle) * 10,
+        y: p.y,
+        z: 28,
+        vx: -p.facing * (45 + Math.random() * 55),
+        vy: (Math.random() - 0.5) * 35,
+        vz: 110 + Math.random() * 55,
+        size: wep.id === 'shotgun' ? 3.5 : 2.4,
+        endSize: wep.id === 'shotgun' ? 3.5 : 2.4,
+        color: wep.id === 'shotgun' ? '#c93c34' : '#e6c24c',
+        alpha: 1,
+        life: 0.75,
+        maxLife: 0.75,
+        gravity: 480,
+        kind: 'casing',
+        rotation: Math.random() * 6,
+        vRot: (Math.random() - 0.5) * 22,
+      });
+    }
+
+    if (wep.id !== 'pistol' && p.ammo[wep.id] <= 0) {
+      this.fallbackToAvailableWeapon();
+    }
+  }
+
+  private fallbackToAvailableWeapon(): void {
+    const order: WeaponId[] = ['minigun', 'rifle', 'shotgun', 'rocket', 'pistol'];
+    for (const id of order) {
+      if (this.player.unlockedWeapons[id] && (id === 'pistol' || this.player.ammo[id] > 0)) {
+        this.player.activeWeapon = id;
+        this.player.spinUp = 0;
+        this.showToast(`OUT OF AMMO — SWITCHED TO ${WEAPONS[id].shortName}`);
+        this.pushHud(true);
+        return;
+      }
+    }
+  }
+
+  private tryThrowGrenade(): void {
+    const p = this.player;
+    if (p.grenades <= 0 || p.grenadeCooldown > 0) return;
+
+    p.grenades--;
+    p.grenadeCooldown = 0.55;
+    this.sound.playDodge();
+
+    const targetX = this.cameraX + this.mouseScreenX;
+    const targetY = Math.max(PLAYABLE_Y_MIN, Math.min(PLAYABLE_Y_MAX, this.mouseScreenY));
+    const dx = targetX - p.x;
+    const dy = targetY - p.y;
+    const dist = Math.min(470, Math.hypot(dx, dy));
+    const ang = Math.atan2(dy, dx);
+    const flightTime = 0.65 + (dist / 470) * 0.25;
+
+    this.projectiles.push({
+      id: this.nextId++,
+      kind: 'grenade',
+      faction: 'ally',
+      x: p.x + Math.cos(ang) * 14,
+      y: p.y + Math.sin(ang) * 10,
+      z: 30,
+      vx: (Math.cos(ang) * dist) / flightTime,
+      vy: (Math.sin(ang) * dist) / flightTime,
+      vz: 240,
+      prevX: p.x,
+      prevY: p.y,
+      prevZ: 30,
+      damage: 165,
+      knockback: 360,
+      armorPiercing: 1.0,
+      explosiveRadius: 128,
+      life: 1.18,
+      maxLife: 1.18,
+      color: '#6b823f',
+      bounces: 0,
+      smokeTimer: 0,
+      rotation: 0,
+    });
+    this.pushHud(true);
+  }
+
+  private fireTankCannon(tank: TankEntity): void {
+    tank.cannonCooldown = 1.12;
+    tank.cannonRecoil = 14;
+    tank.chassisBounce += 1.6;
+    this.recoilBloom = 1.3;
+    this.addShake(11);
+    this.sound.playTankCannon();
+
+    const turretX = tank.x + tank.facing * -4;
+    const turretY = tank.y - 44;
+    const muzzleX = turretX + Math.cos(tank.turretAngle) * 58;
+    const muzzleY = turretY + Math.sin(tank.turretAngle) * 58;
+
+    this.projectiles.push({
+      id: this.nextId++,
+      kind: 'tank_shell',
+      faction: 'ally',
+      x: muzzleX,
+      y: muzzleY + 34,
+      z: 34,
+      vx: Math.cos(tank.turretAngle) * 980,
+      vy: Math.sin(tank.turretAngle) * 980,
+      vz: 0,
+      prevX: muzzleX,
+      prevY: muzzleY + 34,
+      prevZ: 34,
+      damage: 240,
+      knockback: 460,
+      armorPiercing: 1.0,
+      explosiveRadius: 155,
+      life: 1.15,
+      maxLife: 1.15,
+      color: '#ffbf47',
+      bounces: 0,
+      smokeTimer: 0,
+      rotation: tank.turretAngle,
+    });
+
+    // Huge comic muzzle blast smoke & fire!
+    for (let i = 0; i < 12; i++) {
+      const a = tank.turretAngle + (Math.random() - 0.5) * 0.85;
+      const spd = 90 + Math.random() * 160;
+      this.particles.push({
+        x: muzzleX,
+        y: muzzleY + 34,
+        z: 34,
+        vx: Math.cos(a) * spd,
+        vy: Math.sin(a) * spd * 0.6,
+        vz: (Math.random() - 0.3) * 40,
+        size: i < 5 ? 12 : 8,
+        endSize: i < 5 ? 2 : 24,
+        color: i < 5 ? '#ffbe42' : '#d8d4c8',
+        alpha: 0.9,
+        life: i < 5 ? 0.14 : 0.42,
+        maxLife: i < 5 ? 0.14 : 0.42,
+        gravity: -15,
+        kind: i < 5 ? 'fire' : 'smoke',
+        rotation: 0,
+        vRot: 0,
+      });
+    }
+  }
+
+  private fireTankCoax(tank: TankEntity): void {
+    tank.coaxCooldown = 0.085;
+    this.sound.playTankCoax();
+    this.recoilBloom = Math.min(1.0, this.recoilBloom + 0.18);
+
+    const turretX = tank.x + tank.facing * -4;
+    const turretY = tank.y - 42;
+    const ang = tank.turretAngle + (Math.random() - 0.5) * 0.075;
+    const muzzleX = turretX + Math.cos(ang) * 32;
+    const muzzleY = turretY + Math.sin(ang) * 32;
+
+    this.projectiles.push({
+      id: this.nextId++,
+      kind: 'bullet',
+      faction: 'ally',
+      x: muzzleX,
+      y: muzzleY + 32,
+      z: 32,
+      vx: Math.cos(ang) * 1340,
+      vy: Math.sin(ang) * 1340,
+      vz: 0,
+      prevX: muzzleX,
+      prevY: muzzleY + 32,
+      prevZ: 32,
+      damage: 20,
+      knockback: 75,
+      armorPiercing: 0.45,
+      explosiveRadius: 0,
+      life: 0.68,
+      maxLife: 0.68,
+      color: '#ffea75',
+      bounces: 0,
+      smokeTimer: 0,
+      rotation: ang,
+    });
+  }
+
+  private updatePickups(dt: number): void {
+    const p = this.player;
+    for (let i = this.pickups.length - 1; i >= 0; i--) {
+      const pk = this.pickups[i];
+      pk.bobPhase += dt * 2;
+      pk.life -= dt;
+
+      if (pk.z > 0) {
+        pk.swayPhase += dt * 3.1;
+        pk.z = Math.max(0, pk.z - 86 * dt);
+        if (pk.z === 0) {
+          this.spawnDustBurst(pk.x, pk.y, 6);
+        }
+      }
+
+      if (pk.life <= 0) {
+        this.pickups.splice(i, 1);
+        continue;
+      }
+
+      // Auto-pickup when player (on foot OR driving Tank!) rolls over grounded crate
+      if (pk.z <= 8 && p.alive) {
+        const pickupRadius = p.inTankId !== null ? 78 : 58;
+        if (Math.hypot(p.x - pk.x, (p.y - pk.y) * 1.25) <= pickupRadius) {
+          this.collectPickup(pk);
+          this.pickups.splice(i, 1);
+        }
+      }
+    }
+  }
+
+  private collectPickup(pk: PickupEntity): void {
+    const p = this.player;
+    const meta = PICKUP_LABELS[pk.kind];
+
+    if (pk.kind === 'shotgun' || pk.kind === 'rifle' || pk.kind === 'minigun' || pk.kind === 'rocket') {
+      const wep = WEAPONS[pk.kind];
+      const wasUnlocked = p.unlockedWeapons[pk.kind];
+      p.unlockedWeapons[pk.kind] = true;
+      p.ammo[pk.kind] = Math.min(wep.maxAmmo, p.ammo[pk.kind] + wep.pickupAmmo);
+      // Auto-equip newly unlocked weapon (or if currently on pistol)
+      if (!wasUnlocked || p.activeWeapon === 'pistol') {
+        p.activeWeapon = pk.kind;
+        p.spinUp = 0;
+      }
+      this.sound.playPickup(!wasUnlocked);
+    } else if (pk.kind === 'grenade') {
+      p.grenades = Math.min(p.maxGrenades, p.grenades + 4);
+      this.sound.playPickup(false);
+    } else if (pk.kind === 'medkit') {
+      p.hp = Math.min(p.maxHp, p.hp + 55);
+      this.alliedCamp.hp = Math.min(this.alliedCamp.maxHp, this.alliedCamp.hp + 180);
+      for (const t of this.tanks) {
+        t.hp = Math.min(t.maxHp, t.hp + 140);
+      }
+      this.sound.playPickup(true);
+    } else if (pk.kind === 'ammo_all') {
+      p.grenades = Math.min(p.maxGrenades, p.grenades + 3);
+      for (const id of WEAPON_ORDER) {
+        if (id !== 'pistol' && p.unlockedWeapons[id]) {
+          p.ammo[id] = Math.min(WEAPONS[id].maxAmmo, p.ammo[id] + Math.ceil(WEAPONS[id].pickupAmmo * 0.75));
+        }
+      }
+      this.sound.playPickup(true);
+    }
+
+    this.score += 50;
+    this.spawnFloatingText(pk.x, pk.y - 36, meta.label, meta.color, 14);
+    this.showToast(`PICKED UP: ${meta.label}`);
+    this.pushHud(true);
+  }
+
+  private updateSoldiers(dt: number, titleDemo = false): void {
+    const p = this.player;
+
+    for (let i = this.soldiers.length - 1; i >= 0; i--) {
+      const s = this.soldiers[i];
+      const stats = UNIT_STATS[s.kind];
+
+      s.hitFlash = Math.max(0, s.hitFlash - dt);
+      s.attackTimer = Math.max(0, s.attackTimer - dt);
+      if (s.attackAnim > 0) s.attackAnim = Math.max(0, s.attackAnim - dt * 3.8);
+
+      // Apply knockback decay
+      s.x += s.knockVx * dt;
+      s.y += s.knockVy * dt;
+      s.knockVx *= Math.pow(0.002, dt);
+      s.knockVy *= Math.pow(0.002, dt);
+
+      // Acquire nearest opposing target
+      let targetX = s.faction === 'ally' ? ENEMY_CAMP_X - 70 : ALLIED_CAMP_X + 65;
+      let targetY = getRoadCenterY(s.x) + s.preferredLaneOffset;
+      let targetSoldier: SoldierEntity | null = null;
+      let targetIsPlayer = false;
+      let targetTank: TankEntity | null = null;
+      let targetIsCamp = false;
+      let bestScore = Infinity;
+
+      const aggroRange = stats.isRanged ? 460 : 340;
+
+      // Check opposing soldiers
+      for (const other of this.soldiers) {
+        if (other.faction === s.faction || other.hp <= 0) continue;
+        const d = Math.hypot(other.x - s.x, (other.y - s.y) * 1.35);
+        if (d < aggroRange && d < bestScore) {
+          bestScore = d;
+          targetSoldier = other;
+        }
+      }
+
+      // Enemies can also target the Player, Tanks, and Allied Camp!
+      if (s.faction === 'enemy' && !titleDemo) {
+        // Siege ram strongly prioritizes Allied Camp unless blocked
+        const campDist = Math.hypot(ALLIED_CAMP_X + 45 - s.x, (ALLIED_CAMP_Y - s.y) * 0.7);
+        if (campDist < (s.kind === 'siege_ram' ? 3200 : 210) && (s.kind === 'siege_ram' || campDist < bestScore * 0.9)) {
+          bestScore = campDist;
+          targetSoldier = null;
+          targetIsCamp = true;
+        }
+
+        if (s.kind !== 'siege_ram') {
+          for (const t of this.tanks) {
+            if (t.parachuteZ > 2) continue;
+            const d = Math.hypot(t.x - s.x, (t.y - s.y) * 1.3);
+            if (d < aggroRange * 0.95 && d < bestScore) {
+              bestScore = d;
+              targetSoldier = null;
+              targetIsCamp = false;
+              targetTank = t;
+            }
+          }
+
+          if (p.alive && p.inTankId === null) {
+            const d = Math.hypot(p.x - s.x, (p.y - s.y) * 1.3);
+            if (d < aggroRange * 0.95 && d < bestScore * 1.08) {
+              bestScore = d;
+              targetSoldier = null;
+              targetTank = null;
+              targetIsCamp = false;
+              targetIsPlayer = true;
+            }
+          }
+        }
+      }
+
+      if (targetSoldier) {
+        targetX = targetSoldier.x;
+        targetY = targetSoldier.y;
+      } else if (targetTank) {
+        targetX = targetTank.x;
+        targetY = targetTank.y;
+      } else if (targetIsPlayer) {
+        targetX = p.x;
+        targetY = p.y;
+      } else if (targetIsCamp) {
+        targetX = ALLIED_CAMP_X + 42;
+        targetY = Math.max(ALLIED_CAMP_Y - 65, Math.min(ALLIED_CAMP_Y + 65, s.y));
+      }
+
+      const dx = targetX - s.x;
+      const dy = targetY - s.y;
+      const dist = Math.hypot(dx, dy);
+
+      const effectiveRange =
+        stats.attackRange +
+        (targetTank ? 38 : targetIsCamp ? 38 : targetSoldier ? UNIT_STATS[targetSoldier.kind].radius * 0.5 : 10);
+
+      const hasTarget = targetSoldier !== null || targetTank !== null || targetIsPlayer || targetIsCamp;
+
+      if (hasTarget && dist <= effectiveRange) {
+        s.vx = 0;
+        s.vy = 0;
+        if (Math.abs(dx) > 4) s.facing = dx >= 0 ? 1 : -1;
+
+        if (s.attackTimer <= 0) {
+          s.attackTimer = stats.attackCooldown * (0.88 + Math.random() * 0.24);
+          s.attackAnim = 1;
+
+          if (stats.isRanged) {
+            this.fireArcherArrow(s, targetX, targetY);
+          } else {
+            this.performMeleeHit(s, targetSoldier, targetTank, targetIsPlayer, targetIsCamp);
+          }
+        }
+      } else {
+        // March toward target + gentle soft separation from neighbors so troops spread across road!
+        let dirX = dist > 1 ? dx / dist : s.faction === 'ally' ? 1 : -1;
+        let dirY = dist > 1 ? dy / dist : 0;
+
+        let sepX = 0;
+        let sepY = 0;
+        for (let j = 0; j < this.soldiers.length; j++) {
+          if (i === j) continue;
+          const o = this.soldiers[j];
+          const sx = s.x - o.x;
+          const sy = s.y - o.y;
+          const d2 = sx * sx + sy * sy;
+          const minSep = (stats.radius + UNIT_STATS[o.kind].radius) * 0.92;
+          if (d2 > 0.1 && d2 < minSep * minSep) {
+            const d = Math.sqrt(d2);
+            const push = (minSep - d) / minSep;
+            sepX += (sx / d) * push * 1.1;
+            sepY += (sy / d) * push * 1.1;
+          }
+        }
+
+        const speedScale = s.faction === 'enemy' ? 1 + Math.min(0.45, (this.wave - 1) * 0.04) : 1;
+        const moveSpd = stats.speed * speedScale;
+        const fx = dirX + sepX * 0.65;
+        const fy = dirY + sepY * 0.65;
+        const fm = Math.hypot(fx, fy) || 1;
+
+        s.vx = (fx / fm) * moveSpd;
+        s.vy = (fy / fm) * moveSpd * 0.78;
+        s.x += s.vx * dt;
+        s.y += s.vy * dt;
+
+        if (Math.abs(s.vx) > 6) s.facing = s.vx >= 0 ? 1 : -1;
+        s.walkPhase += dt * (s.kind === 'cavalry' ? 14 : 10.5);
+      }
+
+      // Clamp to battlefield bounds
+      s.x = Math.max(ALLIED_CAMP_X + 24, Math.min(ENEMY_CAMP_X - 18, s.x));
+      s.y = Math.max(PLAYABLE_Y_MIN, Math.min(PLAYABLE_Y_MAX, s.y));
+
+      // Allied soldiers that reach Enemy War Camp rally back slightly or attack its gates
+      if (titleDemo && s.faction === 'ally' && s.x > this.viewW - 40) {
+        s.x = this.viewW - 40;
+      }
+    }
+  }
+
+  private performMeleeHit(
+    attacker: SoldierEntity,
+    targetSoldier: SoldierEntity | null,
+    targetTank: TankEntity | null,
+    targetIsPlayer: boolean,
+    targetIsCamp: boolean
+  ): void {
+    const stats = UNIT_STATS[attacker.kind];
+    const dmg = attacker.faction === 'enemy' ? stats.damage * (1 + (this.wave - 1) * 0.06) : stats.damage;
+
+    // Comic white sword slash swoosh
+    this.particles.push({
+      x: attacker.x + attacker.facing * 20,
+      y: attacker.y - 24,
+      z: 0,
+      vx: attacker.facing * 20,
+      vy: 0,
+      vz: 0,
+      size: attacker.kind === 'warlord' ? 28 : 17,
+      endSize: attacker.kind === 'warlord' ? 36 : 22,
+      color: 'rgba(255, 252, 240, 0.85)',
+      alpha: 0.85,
+      life: 0.14,
+      maxLife: 0.14,
+      gravity: 0,
+      kind: 'slash',
+      rotation: attacker.facing > 0 ? 0 : Math.PI,
+      vRot: 0,
+    });
+
+    if (targetSoldier && targetSoldier.hp > 0) {
+      this.damageSoldier(targetSoldier, dmg, attacker.facing * 85, 0, 0.35, false);
+      this.sound.playSwordClash();
+    } else if (targetTank) {
+      const reduced = Math.max(4, dmg * (attacker.kind === 'siege_ram' ? 1.1 : 0.45));
+      this.damageTank(targetTank, reduced);
+      this.sound.playArmorClink();
+    } else if (targetIsPlayer) {
+      this.damagePlayer(dmg * 0.72);
+      this.sound.playSwordClash();
+    } else if (targetIsCamp) {
+      this.damageAlliedCamp(dmg * (attacker.kind === 'siege_ram' ? 2.2 : 1.0));
+      this.sound.playHit();
+    }
+  }
+
+  private fireArcherArrow(archer: SoldierEntity, tx: number, ty: number): void {
+    const dx = tx - archer.x;
+    const dy = ty - archer.y;
+    const dist = Math.max(80, Math.hypot(dx, dy));
+    const spd = 470;
+    const flight = dist / spd;
+    const gravity = 390;
+
+    this.sound.playArrowShoot();
+    this.projectiles.push({
+      id: this.nextId++,
+      kind: 'arrow',
+      faction: archer.faction,
+      x: archer.x + archer.facing * 12,
+      y: archer.y,
+      z: 30,
+      vx: dx / flight + (Math.random() - 0.5) * 32,
+      vy: dy / flight + (Math.random() - 0.5) * 24,
+      vz: 0.5 * gravity * flight,
+      prevX: archer.x,
+      prevY: archer.y,
+      prevZ: 30,
+      damage: UNIT_STATS.archer.damage * (archer.faction === 'enemy' ? 1 + (this.wave - 1) * 0.05 : 1),
+      knockback: 45,
+      armorPiercing: 0.25,
+      explosiveRadius: 0,
+      life: flight + 0.35,
+      maxLife: flight + 0.35,
+      color: '#d8cfb8',
+      bounces: 0,
+      smokeTimer: 0,
+      rotation: 0,
+    });
+  }
+
+  private updateProjectiles(dt: number): void {
+    const p = this.player;
+
+    for (let i = this.projectiles.length - 1; i >= 0; i--) {
+      const pr = this.projectiles[i];
+      pr.prevX = pr.x;
+      pr.prevY = pr.y;
+      pr.prevZ = pr.z;
+      pr.life -= dt;
+
+      if (pr.kind === 'grenade') {
+        pr.x += pr.vx * dt;
+        pr.y += pr.vy * dt;
+        pr.z += pr.vz * dt;
+        pr.vz -= 640 * dt;
+        pr.rotation += dt * 11;
+
+        // Ground bounce!
+        if (pr.z <= 0) {
+          pr.z = 0;
+          if (Math.abs(pr.vz) > 65 && pr.bounces < 2) {
+            pr.vz = -pr.vz * 0.45;
+            pr.vx *= 0.56;
+            pr.vy *= 0.56;
+            pr.bounces++;
+            this.sound.playGrenadeBounce();
+            this.spawnDustBurst(pr.x, pr.y, 3);
+          } else {
+            pr.vz = 0;
+            pr.vx *= Math.pow(0.05, dt);
+            pr.vy *= Math.pow(0.05, dt);
+          }
+        }
+
+        if (pr.life <= 0) {
+          this.triggerExplosion(pr.x, pr.y, pr.explosiveRadius, pr.damage, pr.knockback, true);
+          this.projectiles.splice(i, 1);
+        }
+        continue;
+      }
+
+      if (pr.kind === 'arrow') {
+        pr.x += pr.vx * dt;
+        pr.y += pr.vy * dt;
+        pr.z += pr.vz * dt;
+        pr.vz -= 390 * dt;
+
+        // Check arrow hit when descending into body height
+        let hit = false;
+        if (pr.z < 52 && pr.z > 0) {
+          for (const s of this.soldiers) {
+            if (s.faction === pr.faction || s.hp <= 0) continue;
+            const r = UNIT_STATS[s.kind].radius + 6;
+            if (Math.hypot(s.x - pr.x, (s.y - pr.y) * 1.4) < r) {
+              this.damageSoldier(s, pr.damage, pr.vx * 0.14, 0, pr.armorPiercing, false);
+              hit = true;
+              break;
+            }
+          }
+          if (!hit && pr.faction === 'enemy' && this.phase === 'playing') {
+            for (const t of this.tanks) {
+              if (t.parachuteZ > 2) continue;
+              if (Math.hypot(t.x - pr.x, (t.y - pr.y) * 1.4) < 42) {
+                this.damageTank(t, pr.damage * 0.35);
+                this.sound.playArmorClink();
+                hit = true;
+                break;
+              }
+            }
+          }
+          if (!hit && pr.faction === 'enemy' && p.alive && p.inTankId === null && this.phase === 'playing') {
+            if (Math.hypot(p.x - pr.x, (p.y - pr.y) * 1.4) < 20) {
+              this.damagePlayer(pr.damage * 0.7);
+              hit = true;
+            }
+          }
+        }
+
+        if (hit) {
+          this.projectiles.splice(i, 1);
+          continue;
+        }
+
+        if (pr.z <= 0 || pr.life <= 0) {
+          this.addDecal({
+            x: pr.x,
+            y: pr.y,
+            kind: 'arrow_stuck',
+            radius: 10,
+            angle: pr.vx >= 0 ? 0 : Math.PI,
+            alpha: 0.8,
+            life: 9,
+            maxLife: 9,
+          });
+          this.projectiles.splice(i, 1);
+        }
+        continue;
+      }
+
+      // High-velocity modern firearms, rockets, & tank shells!
+      pr.x += pr.vx * dt;
+      pr.y += pr.vy * dt;
+
+      if (pr.kind === 'rocket' || pr.kind === 'tank_shell') {
+        pr.smokeTimer -= dt;
+        if (pr.smokeTimer <= 0) {
+          pr.smokeTimer = pr.kind === 'rocket' ? 0.018 : 0.024;
+          this.particles.push({
+            x: pr.x,
+            y: pr.y,
+            z: pr.z,
+            vx: (Math.random() - 0.5) * 20,
+            vy: (Math.random() - 0.5) * 16,
+            vz: 14,
+            size: pr.kind === 'rocket' ? 6.5 : 5.5,
+            endSize: pr.kind === 'rocket' ? 19 : 14,
+            color: pr.kind === 'rocket' ? '#e6e2d8' : '#f2d9a0',
+            alpha: 0.72,
+            life: 0.42,
+            maxLife: 0.42,
+            gravity: -10,
+            kind: 'smoke',
+            rotation: 0,
+            vRot: 0,
+          });
+        }
+      }
+
+      // Collision check against enemy soldiers (segment-aware approximation)
+      let hitTarget = false;
+      const impactY = pr.y;
+      for (const s of this.soldiers) {
+        if (s.faction === pr.faction || s.hp <= 0) continue;
+        const stats = UNIT_STATS[s.kind];
+        const rx = stats.radius + (pr.explosiveRadius > 0 ? 12 : 6);
+        // Check against body visual center (y - 24 matches projectile y - z!)
+        const bodyCenterY = s.y - stats.height * 0.48;
+        const projVisualY = pr.y - pr.z;
+        const dx = Math.abs(s.x - pr.x);
+        const dy = Math.abs(bodyCenterY - projVisualY);
+
+        if (dx < rx + 10 && dy < stats.height * 0.56) {
+          hitTarget = true;
+          if (pr.explosiveRadius > 0) {
+            this.triggerExplosion(pr.x, s.y, pr.explosiveRadius, pr.damage, pr.knockback, true);
+          } else {
+            const ang = Math.atan2(pr.vy, pr.vx);
+            this.damageSoldier(
+              s,
+              pr.damage,
+              Math.cos(ang) * pr.knockback,
+              Math.sin(ang) * pr.knockback * 0.4,
+              pr.armorPiercing,
+              true
+            );
+            this.spawnHitSparks(pr.x, projVisualY, stats.armor > 0.3 ? '#ffe875' : '#ff5247', 4);
+          }
+          break;
+        }
+      }
+
+      if (hitTarget) {
+        this.projectiles.splice(i, 1);
+        continue;
+      }
+
+      if (pr.life <= 0 || pr.x < 0 || pr.x > WORLD_WIDTH || pr.y < HORIZON_Y || pr.y > LOGICAL_HEIGHT + 40) {
+        if (pr.explosiveRadius > 0 && pr.x > 0 && pr.x < WORLD_WIDTH) {
+          this.triggerExplosion(pr.x, Math.max(PLAYABLE_Y_MIN, Math.min(PLAYABLE_Y_MAX, impactY)), pr.explosiveRadius, pr.damage, pr.knockback, true);
+        }
+        this.projectiles.splice(i, 1);
+      }
+    }
+  }
+
+  private triggerExplosion(
+    x: number,
+    y: number,
+    radius: number,
+    maxDamage: number,
+    knockback: number,
+    fromPlayer: boolean
+  ): void {
+    const scale = radius / 125;
+    this.sound.playExplosion(scale);
+    this.addShake(Math.min(18, 9 * scale));
+    if (scale >= 1.05) {
+      this.hitstopTimer = Math.max(this.hitstopTimer, 0.032);
+    }
+
+    // Scorched crater decal on battlefield ground
+    this.addDecal({
+      x,
+      y: Math.max(PLAYABLE_Y_MIN, Math.min(PLAYABLE_Y_MAX, y)),
+      kind: 'crater',
+      radius: radius * 0.34,
+      angle: Math.random() * Math.PI * 2,
+      alpha: 0.72,
+      life: 28,
+      maxLife: 28,
+    });
+
+    // Expanding shockwave ring
+    this.particles.push({
+      x,
+      y,
+      z: 4,
+      vx: 0,
+      vy: 0,
+      vz: 0,
+      size: 16,
+      endSize: radius * 1.08,
+      color: '#ffe875',
+      alpha: 0.9,
+      life: 0.3,
+      maxLife: 0.3,
+      gravity: 0,
+      kind: 'ring',
+      rotation: 0,
+      vRot: 0,
+    });
+
+    // Layered comic fireball + dark smoke + flying dirt debris!
+    for (let i = 0; i < 20; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const spd = (40 + Math.random() * 190) * scale;
+      const isFire = i < 11;
+      this.particles.push({
+        x: x + (Math.random() - 0.5) * 20,
+        y: y + (Math.random() - 0.5) * 14,
+        z: 10 + Math.random() * 14,
+        vx: Math.cos(a) * spd,
+        vy: Math.sin(a) * spd * 0.55,
+        vz: 40 + Math.random() * 160,
+        size: isFire ? (16 + Math.random() * 14) * scale : (12 + Math.random() * 10) * scale,
+        endSize: isFire ? 2 : 34 * scale,
+        color: isFire
+          ? i < 4
+            ? '#fff9bf'
+            : i < 8
+              ? '#ffbe33'
+              : '#f05a24'
+          : '#3d3934',
+        alpha: isFire ? 0.96 : 0.78,
+        life: isFire ? 0.25 + Math.random() * 0.18 : 0.55 + Math.random() * 0.35,
+        maxLife: isFire ? 0.43 : 0.9,
+        gravity: isFire ? -20 : -35,
+        kind: isFire ? 'fire' : 'smoke',
+        rotation: 0,
+        vRot: 0,
+        outline: !isFire,
+      });
+    }
+
+    for (let i = 0; i < 12; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const spd = 90 + Math.random() * 240;
+      this.particles.push({
+        x,
+        y,
+        z: 8,
+        vx: Math.cos(a) * spd,
+        vy: Math.sin(a) * spd * 0.5,
+        vz: 140 + Math.random() * 180,
+        size: 5 + Math.random() * 4,
+        endSize: 3,
+        color: i % 2 === 0 ? '#6e583b' : '#ffcf47',
+        alpha: 1,
+        life: 0.65,
+        maxLife: 0.65,
+        gravity: 540,
+        kind: 'debris',
+        rotation: Math.random() * 6,
+        vRot: (Math.random() - 0.5) * 18,
+      });
+    }
+
+    // Apply blast damage & dramatic radial launch to all enemies in radius!
+    for (const s of this.soldiers) {
+      if (s.faction !== 'enemy' || s.hp <= 0) continue;
+      const dx = s.x - x;
+      const dy = (s.y - y) * 1.35;
+      const d = Math.hypot(dx, dy);
+      if (d <= radius) {
+        const falloff = 1 - (d / radius) * 0.62;
+        const ang = Math.atan2(s.y - y, s.x - x);
+        this.damageSoldier(
+          s,
+          maxDamage * falloff,
+          Math.cos(ang) * knockback * falloff,
+          Math.sin(ang) * knockback * 0.45 * falloff,
+          1.0,
+          fromPlayer
+        );
+      }
+    }
+  }
+
+  private damageSoldier(
+    s: SoldierEntity,
+    rawDmg: number,
+    kbX: number,
+    kbY: number,
+    armorPiercing: number,
+    creditedToPlayer: boolean
+  ): void {
+    const stats = UNIT_STATS[s.kind];
+    const effectiveArmor = stats.armor * (1 - armorPiercing);
+    const dmg = Math.max(2, rawDmg * (1 - effectiveArmor));
+
+    s.hp -= dmg;
+    s.hitFlash = 0.1;
+
+    const kbResist = s.kind === 'siege_ram' ? 0.08 : s.kind === 'warlord' ? 0.25 : s.kind === 'knight' ? 0.45 : 1.0;
+    s.knockVx += kbX * kbResist;
+    s.knockVy += kbY * kbResist;
+
+    if (effectiveArmor > 0.2 && creditedToPlayer) {
+      this.sound.playArmorClink();
+    } else if (creditedToPlayer) {
+      this.sound.playHit();
+    }
+
+    if (s.hp <= 0) {
+      const idx = this.soldiers.indexOf(s);
+      if (idx >= 0) this.soldiers.splice(idx, 1);
+
+      // Launch flying cartoon ragdoll corpse!
+      this.corpses.push({
+        x: s.x,
+        y: s.y,
+        vx: kbX * 0.75 + (Math.random() - 0.5) * 40,
+        vy: kbY * 0.45,
+        z: 10,
+        vz: Math.min(260, 70 + Math.hypot(kbX, kbY) * 0.45),
+        rotation: 0,
+        vRot: (kbX >= 0 ? 1 : -1) * (5 + Math.random() * 6),
+        faction: s.faction,
+        kind: s.kind,
+        facing: s.facing,
+        life: 4.5,
+        maxLife: 4.5,
+      });
+
+      if (s.kind === 'siege_ram') {
+        this.spawnWoodSplinters(s.x, s.y - 24, 18);
+      }
+
+      if (s.faction === 'enemy' && this.phase === 'playing') {
+        this.waveKills++;
+        if (creditedToPlayer) {
+          this.registerPlayerKill(s);
+        } else {
+          // Small assist points when your blue army secures a kill!
+          this.score += Math.round(stats.score * 0.25);
+        }
+      }
+    }
+  }
+
+  private registerPlayerKill(s: SoldierEntity): void {
+    const stats = UNIT_STATS[s.kind];
+    this.kills++;
+    this.breakdown[s.kind]++;
+
+    // Combo escalation
+    this.comboTimer = 3.6;
+    this.burstKillWindow = 0.42;
+    this.burstKillCount++;
+    if (this.kills % 2 === 0 && this.combo < 5) {
+      this.combo = Math.min(5, this.combo + 1);
+    }
+
+    const frontlineBonus = this.player.x > WORLD_WIDTH * 0.45 ? 1.25 : 1.0;
+    const pts = Math.round(stats.score * this.combo * frontlineBonus);
+    this.score += pts;
+
+    if (this.score > this.highScore) {
+      this.highScore = this.score;
+      try {
+        window.localStorage.setItem(HIGH_SCORE_KEY, String(this.highScore));
+      } catch {
+        // Ignore storage restrictions
+      }
+    }
+
+    this.spawnFloatingText(
+      s.x,
+      s.y - 44,
+      `+${pts}`,
+      this.combo >= 3 ? '#ffe24d' : '#fff7cf',
+      stats.isBoss ? 19 : 13
+    );
+
+    // Fun anachronistic multi-kill callouts!
+    if (this.burstKillCount === 3) {
+      this.spawnFloatingText(s.x, s.y - 68, 'TRIPLE KILL!', '#ffae38', 16);
+    } else if (this.burstKillCount === 5) {
+      this.spawnFloatingText(s.x, s.y - 74, 'ANACHRONISM!!', '#ff6438', 18);
+      this.score += 250;
+    } else if (this.burstKillCount === 7) {
+      this.spawnFloatingText(s.x, s.y - 78, 'TIME PARADOX!!', '#ffe859', 20);
+      this.score += 500;
+    }
+
+    // Small chance a fallen elite/boss drops an extra battlefield supply crate!
+    const dropChance = stats.isBoss ? 0.9 : s.kind === 'knight' || s.kind === 'cavalry' ? 0.22 : 0.045;
+    if (Math.random() < dropChance && this.pickups.length < 8) {
+      const kinds: PickupKind[] = ['grenade', 'rifle', 'shotgun', 'rocket', 'medkit', 'minigun'];
+      const chosen = kinds[Math.floor(Math.random() * kinds.length)];
+      this.spawnPickup(chosen, s.x, s.y, false);
+    }
+  }
+
+  private damagePlayer(dmg: number): void {
+    const p = this.player;
+    if (!p.alive || p.invulnTimer > 0) return;
+
+    p.hp = Math.max(0, p.hp - dmg);
+    p.hitFlash = 0.16;
+    p.invulnTimer = 0.24;
+    this.playerCombatTimer = 0;
+    this.addShake(4.5);
+    this.spawnHitSparks(p.x, p.y - 26, '#ff4747', 6);
+
+    if (p.hp <= 0) {
+      p.alive = false;
+      this.triggerGameOver('YOU FELL IN BATTLE');
+    }
+  }
+
+  private damageTank(tank: TankEntity, dmg: number): void {
+    tank.hp = Math.max(0, tank.hp - dmg);
+    tank.hitFlash = 0.12;
+    this.spawnHitSparks(tank.x + (Math.random() - 0.5) * 40, tank.y - 24, '#ffe066', 4);
+
+    if (tank.hp <= 0) {
+      const idx = this.tanks.indexOf(tank);
+      if (idx >= 0) this.tanks.splice(idx, 1);
+
+      // Dramatic tank destruction — safely eject player if inside!
+      if (this.player.inTankId === tank.id) {
+        this.player.inTankId = null;
+        this.player.x = tank.x - 24;
+        this.player.y = Math.min(PLAYABLE_Y_MAX - 14, tank.y + 30);
+        this.player.invulnTimer = 1.1;
+        this.showToast('TANK DESTROYED! BAILED OUT SAFELY!');
+      }
+      this.triggerExplosion(tank.x, tank.y, 145, 160, 320, true);
+      this.tankRespawnTimer = 28;
+      this.pushHud(true);
+    }
+  }
+
+  private damageAlliedCamp(dmg: number): void {
+    this.alliedCamp.hp = Math.max(0, this.alliedCamp.hp - dmg);
+    this.alliedCamp.hitFlash = 0.14;
+    this.spawnWoodSplinters(ALLIED_CAMP_X + 18, ALLIED_CAMP_Y - 12, 5);
+    this.addShake(3.2);
+
+    if (this.alliedCamp.hp <= 0) {
+      this.triggerGameOver('THE ALLIED CAMP HAS FALLEN');
+    }
+  }
+
+  private triggerGameOver(reason: string): void {
+    this.phase = 'gameover';
+    this.gameOverReason = reason;
+    this.mouseDownLeft = false;
+    this.mouseDownRight = false;
+    this.addShake(12);
+    this.sound.playExplosion(1.1);
+    this.pushHud(true);
+  }
+
+  private updateParticlesAndProps(dt: number): void {
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const pt = this.particles[i];
+      pt.life -= dt;
+      if (pt.life <= 0) {
+        this.particles.splice(i, 1);
+        continue;
+      }
+      pt.x += pt.vx * dt;
+      pt.y += pt.vy * dt;
+      pt.z += pt.vz * dt;
+      pt.vz -= pt.gravity * dt;
+      pt.rotation += pt.vRot * dt;
+      if (pt.z < 0) {
+        pt.z = 0;
+        pt.vz = -pt.vz * 0.35;
+        pt.vx *= 0.6;
+        pt.vy *= 0.6;
+      }
+    }
+
+    for (let i = this.corpses.length - 1; i >= 0; i--) {
+      const c = this.corpses[i];
+      c.life -= dt;
+      if (c.life <= 0) {
+        this.corpses.splice(i, 1);
+        continue;
+      }
+      c.x += c.vx * dt;
+      c.y += c.vy * dt;
+      c.z += c.vz * dt;
+      c.vz -= 540 * dt;
+      if (c.z <= 0) {
+        c.z = 0;
+        c.vz = 0;
+        c.vx *= Math.pow(0.01, dt);
+        c.vy *= Math.pow(0.01, dt);
+        c.vRot *= Math.pow(0.01, dt);
+      } else {
+        c.rotation += c.vRot * dt;
+      }
+    }
+
+    for (let i = this.decals.length - 1; i >= 0; i--) {
+      this.decals[i].life -= dt;
+      if (this.decals[i].life <= 0) this.decals.splice(i, 1);
+    }
+
+    for (let i = this.floatingTexts.length - 1; i >= 0; i--) {
+      const ft = this.floatingTexts[i];
+      ft.life -= dt;
+      ft.y += ft.vy * dt;
+      if (ft.life <= 0) this.floatingTexts.splice(i, 1);
+    }
+  }
+
+  private updateCamera(dt: number): void {
+    // Follow player smoothly with subtle look-ahead toward mouse aim!
+    const lookLead = (this.mouseScreenX - this.viewW * 0.5) * 0.16;
+    const desired = this.player.x - this.viewW * 0.42 + lookLead;
+    const clamped = Math.max(0, Math.min(WORLD_WIDTH - this.viewW, desired));
+    this.cameraX += (clamped - this.cameraX) * Math.min(1, dt * 6.5);
+  }
+
+  private addShake(mag: number): void {
+    this.shakeMag = Math.min(22, Math.max(this.shakeMag, mag));
+  }
+
+  private updateShake(dt: number): void {
+    if (this.shakeMag > 0.1) {
+      this.shakeX = (Math.random() - 0.5) * 2 * this.shakeMag;
+      this.shakeY = (Math.random() - 0.5) * 2 * this.shakeMag;
+      this.shakeMag = Math.max(0, this.shakeMag - dt * 36);
+    } else {
+      this.shakeMag = 0;
+      this.shakeX = 0;
+      this.shakeY = 0;
+    }
+  }
+
+  private spawnTank(x: number, y: number, airdrop: boolean): void {
+    this.tanks.push({
+      id: this.nextId++,
+      x,
+      y,
+      vx: 0,
+      vy: 0,
+      hp: TANK_MAX_HP,
+      maxHp: TANK_MAX_HP,
+      facing: 1,
+      turretAngle: -0.04,
+      cannonCooldown: 0,
+      coaxCooldown: 0,
+      cannonRecoil: 0,
+      treadOffset: 0,
+      chassisBounce: 0,
+      hitFlash: 0,
+      roadkillCooldowns: new Map(),
+      parachuteZ: airdrop ? 430 : 0,
+      parachuteSway: 0,
+      occupied: false,
+      smokeTimer: 0,
+      trackTimer: 0,
+    });
+  }
+
+  private spawnSoldier(faction: Faction, kind: UnitKind, x: number, y: number): void {
+    const stats = UNIT_STATS[kind];
+    const hpScale = faction === 'enemy' ? 1 + (this.wave - 1) * 0.1 : 1 + Math.min(0.6, (this.wave - 1) * 0.05);
+    const maxHp = Math.round(stats.maxHp * hpScale);
+    this.soldiers.push({
+      id: this.nextId++,
+      faction,
+      kind,
+      x,
+      y,
+      vx: 0,
+      vy: 0,
+      hp: maxHp,
+      maxHp,
+      facing: faction === 'ally' ? 1 : -1,
+      walkPhase: Math.random() * Math.PI * 2,
+      attackTimer: 0.25 + Math.random() * 0.35,
+      attackAnim: 0,
+      hitFlash: 0,
+      knockVx: 0,
+      knockVy: 0,
+      preferredLaneOffset: (Math.random() - 0.5) * 140,
+      targetId: null,
+      bobSeed: Math.random() * 10,
+      elite: this.wave >= 5 && faction === 'enemy' && Math.random() < 0.15,
+    });
+  }
+
+  private spawnPickup(kind: PickupKind, x: number, y: number, parachute: boolean): void {
+    this.pickups.push({
+      id: this.nextId++,
+      kind,
+      x,
+      y,
+      z: parachute ? 390 : 0,
+      vz: 0,
+      swayPhase: Math.random() * Math.PI * 2,
+      bobPhase: Math.random() * Math.PI * 2,
+      life: 48,
+      label: PICKUP_LABELS[kind].label,
+    });
+  }
+
+  private addDecal(decal: GroundDecal): void {
+    this.decals.push(decal);
+    if (this.decals.length > 140) {
+      this.decals.shift();
+    }
+  }
+
+  private spawnFloatingText(x: number, y: number, text: string, color: string, size = 14): void {
+    this.floatingTexts.push({
+      x,
+      y,
+      vy: -42,
+      text,
+      color,
+      size,
+      life: 1.05,
+      maxLife: 1.05,
+    });
+  }
+
+  private spawnHitSparks(x: number, y: number, color: string, count: number): void {
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const spd = 70 + Math.random() * 140;
+      this.particles.push({
+        x,
+        y,
+        z: 0,
+        vx: Math.cos(a) * spd,
+        vy: Math.sin(a) * spd,
+        vz: 40 + Math.random() * 60,
+        size: 3.5,
+        endSize: 0.5,
+        color,
+        alpha: 1,
+        life: 0.24,
+        maxLife: 0.24,
+        gravity: 340,
+        kind: 'spark',
+        rotation: 0,
+        vRot: 0,
+      });
+    }
+  }
+
+  private spawnDustBurst(x: number, y: number, count: number): void {
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const spd = 25 + Math.random() * 65;
+      this.particles.push({
+        x: x + (Math.random() - 0.5) * 16,
+        y: y + (Math.random() - 0.5) * 8,
+        z: 2,
+        vx: Math.cos(a) * spd,
+        vy: Math.sin(a) * spd * 0.4,
+        vz: 24 + Math.random() * 35,
+        size: 6,
+        endSize: 16,
+        color: '#b8a484',
+        alpha: 0.65,
+        life: 0.42,
+        maxLife: 0.42,
+        gravity: -8,
+        kind: 'dust',
+        rotation: 0,
+        vRot: 0,
+      });
+    }
+  }
+
+  private spawnWoodSplinters(x: number, y: number, count: number): void {
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const spd = 80 + Math.random() * 170;
+      this.particles.push({
+        x,
+        y,
+        z: 18,
+        vx: Math.cos(a) * spd,
+        vy: Math.sin(a) * spd * 0.5,
+        vz: 110 + Math.random() * 130,
+        size: 7 + Math.random() * 4,
+        endSize: 4,
+        color: i % 2 === 0 ? '#9c562c' : '#6e3b1e',
+        alpha: 1,
+        life: 0.65,
+        maxLife: 0.65,
+        gravity: 520,
+        kind: 'wood',
+        rotation: Math.random() * 6,
+        vRot: (Math.random() - 0.5) * 16,
+      });
+    }
+  }
+
+  private render(): void {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.setTransform(this.dpr * this.scale, 0, 0, this.dpr * this.scale, 0, 0);
+
+    const state: RenderState = {
+      time: this.time,
+      cameraX: this.cameraX,
+      viewW: this.viewW,
+      shakeX: this.shakeX,
+      shakeY: this.shakeY,
+      mouseWorldX: this.cameraX + this.mouseScreenX,
+      mouseWorldY: this.mouseScreenY,
+      mouseScreenX: this.mouseScreenX,
+      mouseScreenY: this.mouseScreenY,
+      player: this.player,
+      alliedCamp: this.alliedCamp,
+      enemyCampFlagPhase: this.enemyCampFlagPhase,
+      tanks: this.tanks,
+      soldiers: this.soldiers,
+      projectiles: this.projectiles,
+      pickups: this.pickups,
+      particles: this.particles,
+      corpses: this.corpses,
+      decals: this.decals,
+      floatingTexts: this.floatingTexts,
+      scenery: this.scenery,
+      clouds: this.clouds,
+      showCrosshair: this.phase === 'playing',
+      recoilBloom: this.recoilBloom,
+    };
+
+    this.renderer.render(ctx, state);
+    ctx.restore();
+  }
+
+  private pushHud(force: boolean, dt = 0): void {
+    this.hudThrottle -= dt;
+    if (!force && this.hudThrottle > 0) return;
+    this.hudThrottle = 0.08;
+
+    const activeTank = this.tanks[0] ?? null;
+    const nearTank =
+      this.player.alive &&
+      this.player.inTankId === null &&
+      this.tanks.some(
+        (t) => t.parachuteZ <= 2 && Math.hypot(t.x - this.player.x, t.y - this.player.y) <= TANK_INTERACT_RADIUS
+      );
+
+    let alliesCount = 0;
+    let enemiesCount = 0;
+    let frontlineX = this.player.x;
+    let enemyMinX = ENEMY_CAMP_X;
+    for (const s of this.soldiers) {
+      if (s.faction === 'ally') alliesCount++;
+      else {
+        enemiesCount++;
+        if (s.x < enemyMinX) enemyMinX = s.x;
+      }
+    }
+    if (enemiesCount > 0) frontlineX = enemyMinX;
+
+    this.hudCallback({
+      phase: this.phase,
+      score: this.score,
+      highScore: this.highScore,
+      kills: this.kills,
+      wave: this.wave,
+      waveProgress: Math.min(1, Math.max(this.waveKills / this.waveKillTarget, this.waveElapsed / this.waveDuration)),
+      waveBannerText: this.waveBannerText,
+      waveBannerSub: this.waveBannerSub,
+      waveBannerAlpha: Math.min(1, this.waveBannerTimer),
+      combo: this.combo,
+      comboTimer: this.comboTimer,
+      playerHp: Math.ceil(this.player.hp),
+      playerMaxHp: this.player.maxHp,
+      campHp: Math.ceil(this.alliedCamp.hp),
+      campMaxHp: this.alliedCamp.maxHp,
+      inTank: this.player.inTankId !== null,
+      tankHp: activeTank ? Math.ceil(activeTank.hp) : 0,
+      tankMaxHp: activeTank ? activeTank.maxHp : TANK_MAX_HP,
+      tankAlive: activeTank !== null,
+      tankPrompt: nearTank,
+      activeWeapon: this.player.activeWeapon,
+      unlockedWeapons: { ...this.player.unlockedWeapons },
+      ammo: { ...this.player.ammo },
+      grenades: this.player.grenades,
+      maxGrenades: this.player.maxGrenades,
+      alliesCount,
+      enemiesCount,
+      frontlineRatio: Math.max(0, Math.min(1, (frontlineX - ALLIED_CAMP_X) / (ENEMY_CAMP_X - ALLIED_CAMP_X))),
+      playerRatio: Math.max(0, Math.min(1, (this.player.x - ALLIED_CAMP_X) / (ENEMY_CAMP_X - ALLIED_CAMP_X))),
+      tankRatio: activeTank
+        ? Math.max(0, Math.min(1, (activeTank.x - ALLIED_CAMP_X) / (ENEMY_CAMP_X - ALLIED_CAMP_X)))
+        : null,
+      muted: this.sound.isMuted(),
+      gameOverReason: this.gameOverReason,
+      timeSurvived: this.timeSurvived,
+      breakdown: { ...this.breakdown },
+      pickupToast: this.pickupToast,
+      pickupToastTimer: this.pickupToastTimer,
+    });
+  }
+}
