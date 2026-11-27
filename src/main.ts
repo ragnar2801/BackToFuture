@@ -48,9 +48,9 @@ const touchControls = mustGet<HTMLDivElement>('touch-controls');
 const touchMoveZone = mustGet<HTMLDivElement>('touch-move-zone');
 const moveStickBase = mustGet<HTMLDivElement>('move-stick-base');
 const moveStickKnob = mustGet<HTMLDivElement>('move-stick-knob');
-const aimStickBase = mustGet<HTMLDivElement>('aim-stick-base');
-const aimStickKnob = mustGet<HTMLDivElement>('aim-stick-knob');
-const aimStickLabel = mustGet<HTMLSpanElement>('aim-stick-label');
+const touchBtnFire = mustGet<HTMLButtonElement>('touch-btn-fire');
+const touchFireLabel = mustGet<HTMLSpanElement>('touch-fire-label');
+const touchFireSub = mustGet<HTMLElement>('touch-fire-sub');
 const touchBtnSwap = mustGet<HTMLButtonElement>('touch-btn-swap');
 const touchSwapWep = mustGet<HTMLElement>('touch-swap-wep');
 const touchBtnTank = mustGet<HTMLButtonElement>('touch-btn-tank');
@@ -61,7 +61,6 @@ const touchFragCount = mustGet<HTMLElement>('touch-frag-count');
 
 const btnToggleWeight = mustGet<HTMLButtonElement>('btn-toggle-weight');
 const btnToggleAssist = mustGet<HTMLButtonElement>('btn-toggle-assist');
-const btnToggleQuicktap = mustGet<HTMLButtonElement>('btn-toggle-quicktap');
 
 const titleHighscore = mustGet<HTMLDivElement>('title-highscore');
 const titleHighscoreVal = mustGet<HTMLElement>('title-highscore-val');
@@ -101,7 +100,6 @@ interface VirtualStickHandle {
 interface VirtualStickOptions {
   zoneEl?: HTMLElement;
   isFloating?: boolean;
-  onTap?: () => void;
 }
 
 function bindVirtualStick(
@@ -112,22 +110,18 @@ function bindVirtualStick(
 ): VirtualStickHandle {
   let activeTouchId: number | null = null;
   let activeMousePointerId: number | null = null;
-  let touchStartTime = 0;
-  let maxTouchDist = 0;
+  let anchorClientX = 0;
+  let anchorClientY = 0;
 
   const targetListenerEl = options?.zoneEl ?? baseEl;
 
   const updateFromClient = (clientX: number, clientY: number) => {
-    const rect = baseEl.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return;
-    const cx = rect.left + rect.width * 0.5;
-    const cy = rect.top + rect.height * 0.5;
-    const maxRadius = Math.max(24, rect.width * 0.38);
+    const width = baseEl.offsetWidth || 112;
+    const maxRadius = Math.max(24, width * 0.38);
 
-    const dx = clientX - cx;
-    const dy = clientY - cy;
+    const dx = clientX - anchorClientX;
+    const dy = clientY - anchorClientY;
     const rawDist = Math.hypot(dx, dy);
-    maxTouchDist = Math.max(maxTouchDist, rawDist);
 
     const clampedDist = Math.min(maxRadius, rawDist);
     const ang = Math.atan2(dy, dx);
@@ -168,23 +162,26 @@ function bindVirtualStick(
       const touch = e.changedTouches[0];
       if (!touch) return;
       activeTouchId = touch.identifier;
-      touchStartTime = performance.now();
-      maxTouchDist = 0;
       baseEl.classList.add('active');
 
       if (options?.isFloating && options.zoneEl) {
-        // Dynamically anchor base under thumb touchdown within the capture zone
+        // Dynamically anchor base pixel-perfectly under thumb touchdown within the capture zone
         const zoneRect = options.zoneEl.getBoundingClientRect();
         const halfW = (baseEl.offsetWidth || 112) * 0.5;
         const halfH = (baseEl.offsetHeight || 112) * 0.5;
         const clampedX = Math.max(halfW + 4, Math.min(zoneRect.width - halfW - 4, touch.clientX - zoneRect.left));
         const clampedY = Math.max(halfH + 4, Math.min(zoneRect.height - halfH - 4, touch.clientY - zoneRect.top));
-        // Default base center
-        const defaultCenterLeft = 24 + halfW;
-        const defaultCenterTop = zoneRect.height - 24 - halfH;
+        const defaultCenterLeft = baseEl.offsetLeft + halfW;
+        const defaultCenterTop = baseEl.offsetTop + halfH;
         const offX = clampedX - defaultCenterLeft;
         const offY = clampedY - defaultCenterTop;
         baseEl.style.transform = `translate3d(${offX.toFixed(1)}px, ${offY.toFixed(1)}px, 0)`;
+        anchorClientX = zoneRect.left + clampedX;
+        anchorClientY = zoneRect.top + clampedY;
+      } else {
+        const rect = baseEl.getBoundingClientRect();
+        anchorClientX = rect.left + rect.width * 0.5;
+        anchorClientY = rect.top + rect.height * 0.5;
       }
 
       updateFromClient(touch.clientX, touch.clientY);
@@ -212,10 +209,6 @@ function bindVirtualStick(
     if (activeTouchId === null) return;
     for (let i = 0; i < e.changedTouches.length; i++) {
       if (e.changedTouches[i].identifier === activeTouchId) {
-        const elapsed = performance.now() - touchStartTime;
-        if (options?.onTap && elapsed < 240 && maxTouchDist < 16) {
-          options.onTap();
-        }
         reset();
         break;
       }
@@ -236,6 +229,9 @@ function bindVirtualStick(
     } catch {
       // Ignore synthetic events
     }
+    const rect = baseEl.getBoundingClientRect();
+    anchorClientX = rect.left + rect.width * 0.5;
+    anchorClientY = rect.top + rect.height * 0.5;
     updateFromClient(e.clientX, e.clientY);
   });
 
@@ -393,20 +389,22 @@ function renderHud(h: HudSnapshot): void {
 
   btnToggleWeight.textContent = `AIM WEIGHT: ${h.aimWeight.toUpperCase()}`;
   btnToggleAssist.textContent = `MAGNETISM: ${h.aimAssist ? 'ON' : 'OFF'}`;
-  btnToggleQuicktap.textContent = `QUICK-TAP: ${h.quickTapAutoAim ? 'ON' : 'OFF'}`;
 
   touchBtnTank.classList.toggle('hidden', !h.inTank && !h.tankPrompt);
   touchBtnTank.textContent = h.inTank ? 'EXIT' : 'TANK';
   touchBtnRoll.classList.toggle('hidden', h.inTank);
   touchBtnFrag.classList.toggle('coax-mode', h.inTank);
+  touchBtnFire.classList.toggle('tank-fire-mode', h.inTank);
   if (h.inTank) {
     touchFragLabel.textContent = 'MG';
     touchFragCount.textContent = 'HOLD';
-    aimStickLabel.textContent = 'CANNON';
+    touchFireLabel.textContent = 'CANNON';
+    touchFireSub.textContent = '75MM';
   } else {
     touchFragLabel.textContent = 'FRAG';
     touchFragCount.textContent = String(h.grenades);
-    aimStickLabel.textContent = 'AIM & FIRE';
+    touchFireLabel.textContent = 'FIRE';
+    touchFireSub.textContent = WEAPONS[h.activeWeapon].shortName;
   }
 
   for (const id of WEAPON_ORDER) {
@@ -454,7 +452,7 @@ detectAndEnableTouchUi();
 const engine = new GameEngine(canvas, renderHud);
 buildWeaponBar((id) => engine.selectWeapon(id));
 
-// Wire multi-touch virtual joysticks & action buttons
+// Wire multi-touch virtual joystick (move + aim) & dedicated right-thumb FIRE button
 const moveStick = bindVirtualStick(
   moveStickBase,
   moveStickKnob,
@@ -471,43 +469,66 @@ const moveStick = bindVirtualStick(
   }
 );
 
-const aimStick = bindVirtualStick(
-  aimStickBase,
-  aimStickKnob,
-  (active, nx, ny, ratio) => {
-    if (!active) {
-      engine.setTouchAim(false, 0, 0, 0, false);
-      aimStickKnob.classList.remove('aiming', 'firing');
-      aimStickLabel.textContent = isInTank ? 'CANNON' : 'AIM & FIRE';
-    } else {
-      const isFiring = ratio >= 0.40;
-      engine.setTouchAim(true, nx, ny, ratio, isFiring);
-      if (isFiring) {
-        aimStickKnob.classList.add('firing');
-        aimStickKnob.classList.remove('aiming');
-        aimStickLabel.textContent = isInTank ? 'FIRING' : 'FIRING!';
-      } else if (ratio >= 0.14) {
-        aimStickKnob.classList.add('aiming');
-        aimStickKnob.classList.remove('firing');
-        aimStickLabel.textContent = isInTank ? 'AIMING' : 'AIMING';
-      } else {
-        aimStickKnob.classList.remove('aiming', 'firing');
-        aimStickLabel.textContent = isInTank ? 'CANNON' : 'AIM & FIRE';
-      }
-    }
-  },
-  {
-    onTap: () => engine.quickTapAutoFire(),
-  }
-);
-
+let fireTouchId: number | null = null;
+let fireMousePointerId: number | null = null;
 let coaxTouchId: number | null = null;
 let coaxMousePointerId: number | null = null;
 let lastIsLandscape = window.innerWidth >= window.innerHeight;
 
+const stopTouchFire = () => {
+  fireTouchId = null;
+  fireMousePointerId = null;
+  touchBtnFire.classList.remove('pressed');
+  engine.setTouchFire(false);
+};
+
+touchBtnFire.addEventListener(
+  'touchstart',
+  (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    document.body.classList.add('is-touch');
+    if (fireTouchId !== null) return;
+    const t = e.changedTouches[0];
+    if (!t) return;
+    fireTouchId = t.identifier;
+    touchBtnFire.classList.add('pressed');
+    engine.setTouchFire(true);
+  },
+  { passive: false }
+);
+
+const endFireTouch = (e: TouchEvent) => {
+  if (fireTouchId === null) return;
+  for (let i = 0; i < e.changedTouches.length; i++) {
+    if (e.changedTouches[i].identifier === fireTouchId) {
+      stopTouchFire();
+      break;
+    }
+  }
+};
+window.addEventListener('touchend', endFireTouch, { passive: true });
+window.addEventListener('touchcancel', endFireTouch, { passive: true });
+
+touchBtnFire.addEventListener('pointerdown', (e) => {
+  if (e.pointerType === 'touch' || fireMousePointerId !== null) return;
+  e.preventDefault();
+  e.stopPropagation();
+  fireMousePointerId = e.pointerId;
+  touchBtnFire.classList.add('pressed');
+  engine.setTouchFire(true);
+});
+
+const endFireMouse = (e: PointerEvent) => {
+  if (fireMousePointerId === null || e.pointerId !== fireMousePointerId) return;
+  stopTouchFire();
+};
+window.addEventListener('pointerup', endFireMouse);
+window.addEventListener('pointercancel', endFireMouse);
+
 const resetAllTouchUi = () => {
   moveStick.reset();
-  aimStick.reset();
+  stopTouchFire();
   coaxTouchId = null;
   coaxMousePointerId = null;
   touchBtnFrag.classList.remove('pressed');
@@ -639,6 +660,5 @@ btnPause.addEventListener('click', () => {
 
 btnToggleWeight.addEventListener('click', () => engine.cycleAimWeight());
 btnToggleAssist.addEventListener('click', () => engine.toggleAimAssist());
-btnToggleQuicktap.addEventListener('click', () => engine.toggleQuickTap());
 
 engine.startLoop();

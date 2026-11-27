@@ -338,7 +338,6 @@ export interface HudSnapshot {
   pickupToastTimer: number;
   aimWeight: AimWeightSetting;
   aimAssist: boolean;
-  quickTapAutoAim: boolean;
   nextWeaponId: WeaponId;
 }
 

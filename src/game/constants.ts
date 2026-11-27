@@ -169,12 +169,10 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
 };
 
 export const AIM_ASSIST_CONFIG = {
-  coneAngle: 0.32, // ~18.3 degrees capture cone
-  maxRange: 560,
-  magneticPull: 0.52, // Sticky pull factor toward target center
-  turnFriction: 0.65, // Rotational speed damping when sweeping across a target
-  aimStickDeadzone: 0.14,
-  aimStickFireThreshold: 0.40,
+  coneAngle: 0.24, // ~13.7 degrees gentle forward capture cone
+  maxRange: 580,
+  magneticPull: 0.44, // Subtle sticky pull onto enemies straight ahead
+  turnFriction: 0.72, // Slight damping when crossing a target
 };
 
 export const UNIT_STATS: Record<UnitKind, UnitStats> = {

@@ -90,15 +90,15 @@
 
         <!-- Mobile Multi-Touch Controls Layer (auto-shown on touch devices) -->
         <div id="touch-controls" class="touch-controls" aria-label="Touch Controls">
-          <!-- Left Virtual Move Joystick -->
-          <div id="touch-move-zone" class="stick-zone move-zone">
+          <!-- Left Virtual Move & Aim Joystick -->
+          <div id="touch-move-zone" class="move-zone">
             <div id="move-stick-base" class="stick-base">
-              <span class="stick-label">MOVE</span>
+              <span class="stick-label">MOVE &amp; AIM</span>
               <div id="move-stick-knob" class="stick-knob"></div>
             </div>
           </div>
 
-          <!-- Right Virtual Aim/Fire Joystick + Action Buttons -->
+          <!-- Right Action Buttons + Dedicated FIRE Trigger -->
           <div id="touch-right-zone" class="touch-right-zone">
             <div class="touch-action-row">
               <button id="touch-btn-swap" class="touch-btn swap-btn" type="button" title="Quick Swap Weapon">
@@ -112,10 +112,10 @@
                 <small id="touch-frag-count">4</small>
               </button>
             </div>
-            <div id="aim-stick-base" class="stick-base aim-stick-base">
-              <span id="aim-stick-label" class="stick-label">AIM &amp; FIRE</span>
-              <div id="aim-stick-knob" class="stick-knob aim-knob"></div>
-            </div>
+            <button id="touch-btn-fire" class="touch-fire-btn" type="button" aria-label="Fire Weapon">
+              <span id="touch-fire-label" class="fire-btn-label">FIRE</span>
+              <small id="touch-fire-sub" class="fire-btn-sub">PISTOL</small>
+            </button>
           </div>
         </div>
 
@@ -170,9 +170,8 @@
             <div><kbd>Shift</kbd> Dodge Roll</div>
           </div>
           <div class="touch-legend">
-            <span><strong>Left Zone</strong> Move (Auto-Centers)</span>
-            <span><strong>Right Stick</strong> Drag to Aim &amp; Fire</span>
-            <span><strong>Quick Tap</strong> Auto-Aim Nearest Threat</span>
+            <span><strong>Left Stick</strong> Move &amp; Aim</span>
+            <span><strong>Right Button</strong> Hold to Fire</span>
             <span><strong>Buttons</strong> Swap • Frag • Roll • Tank</span>
           </div>
         </div>
@@ -185,11 +184,10 @@
           <h2 class="overlay-heading">HOLD THE LINE</h2>
 
           <div class="pause-settings">
-            <span class="settings-title">TACTICAL AIM CONTROLS</span>
+            <span class="settings-title">AIM CONTROLS</span>
             <div class="settings-row">
-              <button id="btn-toggle-weight" class="setting-btn" type="button" title="Cycle Aim Weight / Inertia">WEIGHT: BALANCED</button>
+              <button id="btn-toggle-weight" class="setting-btn" type="button" title="Cycle Aim Weight / Inertia">AIM WEIGHT: BALANCED</button>
               <button id="btn-toggle-assist" class="setting-btn" type="button" title="Toggle Sticky Aim Assist">MAGNETISM: ON</button>
-              <button id="btn-toggle-quicktap" class="setting-btn" type="button" title="Toggle Quick-Tap Auto Threat Lock">QUICK-TAP: ON</button>
             </div>
           </div>
 

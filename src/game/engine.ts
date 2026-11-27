@@ -107,17 +107,11 @@ export class GameEngine {
   private isTouchInput = false;
   private touchMoveX = 0;
   private touchMoveY = 0;
-  private touchAimActive = false;
-  private touchAimAngle = 0;
-  private touchAimRatio = 0;
   private touchFiring = false;
   private touchCoax = false;
-  private canvasTouchId: number | null = null;
-  private aimIdleTimer = 0;
   private lockedTargetId: number | null = null;
   private aimWeightSetting: AimWeightSetting = 'balanced';
   private aimAssistEnabled = true;
-  private quickTapEnabled = true;
   private resizeTimers: number[] = [];
 
   // World entities & Sector Progression
@@ -190,10 +184,6 @@ export class GameEngine {
       const savedAssist = window.localStorage.getItem('bttf_aim_assist');
       if (savedAssist !== null) {
         this.aimAssistEnabled = savedAssist === 'true';
-      }
-      const savedQuickTap = window.localStorage.getItem('bttf_quick_tap');
-      if (savedQuickTap !== null) {
-        this.quickTapEnabled = savedQuickTap === 'true';
       }
     } catch {
       // Ignore storage failures in sandboxed frames
@@ -273,16 +263,10 @@ export class GameEngine {
     this.touchMoveY = Math.max(-1, Math.min(1, y));
   }
 
-  public setTouchAim(active: boolean, dx: number, dy: number, ratio: number, firing: boolean): void {
+  public setTouchFire(firing: boolean): void {
     this.isTouchInput = true;
     this.sound.unlock();
-    this.touchAimActive = active;
     this.touchFiring = firing;
-    this.touchAimRatio = ratio;
-    if (active && Math.hypot(dx, dy) > 0.05) {
-      this.touchAimAngle = Math.atan2(dy, dx);
-      this.aimIdleTimer = 0;
-    }
   }
 
   public setTouchCoax(firing: boolean): void {
@@ -314,72 +298,6 @@ export class GameEngine {
       window.localStorage.setItem('bttf_aim_assist', String(this.aimAssistEnabled));
     } catch {}
     this.pushHud(true);
-  }
-
-  public toggleQuickTap(): void {
-    this.quickTapEnabled = !this.quickTapEnabled;
-    try {
-      window.localStorage.setItem('bttf_quick_tap', String(this.quickTapEnabled));
-    } catch {}
-    this.pushHud(true);
-  }
-
-  public quickTapAutoFire(): void {
-    if (this.phase !== 'playing' || !this.player.alive || !this.quickTapEnabled) return;
-    this.isTouchInput = true;
-    this.sound.unlock();
-
-    const p = this.player;
-    const originX = p.x;
-    const originY = p.inTankId !== null ? p.y - 44 : p.y - 28;
-
-    // Acquire nearest / highest-priority enemy within quick-tap range
-    let bestTarget: SoldierEntity | null = null;
-    let bestScore = Infinity;
-
-    for (const s of this.soldiers) {
-      if (s.faction !== 'enemy' || s.hp <= 0) continue;
-      const dx = s.x - originX;
-      const dy = s.y - originY;
-      const dist = Math.hypot(dx, dy);
-      if (dist > AIM_ASSIST_CONFIG.maxRange) continue;
-
-      // Priority multiplier: boss/siege/cavalry prioritized
-      const priorityBonus = s.kind === 'warlord' || s.kind === 'siege_ram' ? 0.35 : s.kind === 'cavalry' ? 0.5 : 1.0;
-      // Slight preference to direction hero is facing
-      const facingBonus = Math.sign(dx) === p.facing ? 0.8 : 1.25;
-      const score = dist * priorityBonus * facingBonus;
-
-      if (score < bestScore) {
-        bestScore = score;
-        bestTarget = s;
-      }
-    }
-
-    if (bestTarget) {
-      const targetAngle = Math.atan2(bestTarget.y - originY, bestTarget.x - originX);
-      p.aimAngle = targetAngle;
-      p.facing = Math.cos(targetAngle) >= 0 ? 1 : -1;
-      this.touchAimAngle = targetAngle;
-      this.lockedTargetId = bestTarget.id;
-      this.aimIdleTimer = 0;
-      this.sound.playPickup();
-    }
-
-    // Fire weapon immediately
-    if (p.inTankId !== null) {
-      const tank = this.tanks.find((t) => t.id === p.inTankId);
-      if (tank) {
-        if (bestTarget) tank.turretAngle = p.aimAngle;
-        if (tank.cannonCooldown <= 0) {
-          this.fireTankCannon(tank);
-        }
-      }
-    } else {
-      if (p.fireCooldown <= 0) {
-        this.firePlayerWeapon();
-      }
-    }
   }
 
   public getAimAssistTarget(
@@ -444,11 +362,8 @@ export class GameEngine {
   public resetTouchInputs(): void {
     this.touchMoveX = 0;
     this.touchMoveY = 0;
-    this.touchAimActive = false;
-    this.touchAimRatio = 0;
     this.touchFiring = false;
     this.touchCoax = false;
-    this.canvasTouchId = null;
     this.lockedTargetId = null;
   }
 
@@ -793,63 +708,15 @@ export class GameEngine {
       if (e.button === 2) this.mouseDownRight = false;
     });
 
-    // Direct battlefield touch aim & shoot (safely isolated from lower virtual stick zones!)
+    // Mark touch input and unlock audio on canvas touch without hijacking movement aim
     this.canvas.addEventListener(
       'touchstart',
-      (e) => {
-        if (this.phase !== 'playing') return;
+      () => {
         this.isTouchInput = true;
         this.sound.unlock();
-        if (this.canvasTouchId !== null || this.touchAimActive) return;
-        const touch = e.changedTouches[0];
-        if (!touch) return;
-
-        const rect = this.canvas.getBoundingClientRect();
-        // Do not intercept touches intended for lower virtual sticks/action buttons
-        const touchY = touch.clientY - rect.top;
-        if (touchY > rect.height * 0.68) return;
-
-        e.preventDefault();
-        this.canvasTouchId = touch.identifier;
-        this.mouseScreenX = (touch.clientX - rect.left) / this.scale;
-        this.mouseScreenY = (touch.clientY - rect.top) / this.scale;
-        this.touchFiring = true;
       },
-      { passive: false }
+      { passive: true }
     );
-
-    this.canvas.addEventListener(
-      'touchmove',
-      (e) => {
-        if (this.canvasTouchId === null) return;
-        for (let i = 0; i < e.changedTouches.length; i++) {
-          const touch = e.changedTouches[i];
-          if (touch.identifier === this.canvasTouchId) {
-            e.preventDefault();
-            const rect = this.canvas.getBoundingClientRect();
-            this.mouseScreenX = (touch.clientX - rect.left) / this.scale;
-            this.mouseScreenY = (touch.clientY - rect.top) / this.scale;
-            break;
-          }
-        }
-      },
-      { passive: false }
-    );
-
-    const endCanvasTouch = (e: TouchEvent) => {
-      if (this.canvasTouchId === null) return;
-      for (let i = 0; i < e.changedTouches.length; i++) {
-        if (e.changedTouches[i].identifier === this.canvasTouchId) {
-          this.canvasTouchId = null;
-          if (!this.touchAimActive) {
-            this.touchFiring = false;
-          }
-          break;
-        }
-      }
-    };
-    this.canvas.addEventListener('touchend', endCanvasTouch, { passive: true });
-    this.canvas.addEventListener('touchcancel', endCanvasTouch, { passive: true });
 
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
@@ -1261,42 +1128,27 @@ export class GameEngine {
     const originY = p.inTankId !== null ? p.y - 44 : p.y - 28;
     const originX = p.x;
 
-    let isActivelyAiming = false;
     let targetAimAngle = p.aimAngle;
+    let shouldAssist = false;
 
-    if (this.touchAimActive) {
-      isActivelyAiming = true;
-      targetAimAngle = this.touchAimAngle;
-      this.aimIdleTimer = 0;
-    } else if (this.canvasTouchId !== null) {
-      isActivelyAiming = true;
-      const worldTouchX = this.cameraX + this.mouseScreenX;
-      targetAimAngle = Math.atan2(this.mouseScreenY - originY, worldTouchX - originX);
-      this.aimIdleTimer = 0;
-    } else if (!this.isTouchInput) {
+    if (!this.isTouchInput) {
       // Desktop mouse aim
-      isActivelyAiming = true;
       const worldMouseX = this.cameraX + this.mouseScreenX;
       targetAimAngle = Math.atan2(this.mouseScreenY - originY, worldMouseX - originX);
-      this.aimIdleTimer = 0;
+      shouldAssist = true;
     } else {
-      // Idle on mobile (not touching right aim stick)
-      this.aimIdleTimer += dt;
-      if (this.aimIdleTimer < 1.2) {
-        // Combat strafing memory: preserve aim direction while maneuvering!
-        targetAimAngle = p.aimAngle;
-      } else if (mag > 0.2) {
-        // Smoothly ease torso toward movement direction over time without jerky snaps
-        const walkAngle = Math.atan2(moveY * 0.6, moveX);
-        const diff = Math.atan2(Math.sin(walkAngle - p.aimAngle), Math.cos(walkAngle - p.aimAngle));
-        targetAimAngle = p.aimAngle + diff * Math.min(1, dt * 3.5);
+      // Mobile: aim straight toward the direction the character is moving; hold aim when stopped
+      if (mag > 0.12) {
+        const yScale = p.inTankId !== null ? 0.78 : 0.85;
+        targetAimAngle = Math.atan2(moveY * yScale, moveX);
       }
+      shouldAssist = mag > 0.12 || this.touchFiring;
     }
 
-    // Target Magnetism (Sticky Aim Assist)
+    // Subtle Target Magnetism (Sticky Aim Assist along the line of movement/fire)
     this.lockedTargetId = null;
     let assistTarget: SoldierEntity | null = null;
-    if (this.aimAssistEnabled && isActivelyAiming) {
+    if (this.aimAssistEnabled && shouldAssist) {
       assistTarget = this.getAimAssistTarget(
         originX,
         originY,
@@ -1328,10 +1180,8 @@ export class GameEngine {
 
     const currentTurnRate = baseTurnRate * weightMultiplier;
 
-    // Firing inputs: virtual aim stick only fires when pushed past fire threshold, allowing aim preview!
-    const wantFire = this.touchAimActive
-      ? this.touchAimRatio >= AIM_ASSIST_CONFIG.aimStickFireThreshold
-      : this.mouseDownLeft || this.touchFiring;
+    // Firing inputs: LMB on desktop or big FIRE button on mobile
+    const wantFire = this.mouseDownLeft || this.touchFiring;
     const wantCoax = this.mouseDownRight || this.keys.has('Space') || this.touchCoax;
 
     // DRIVING TANK MODE
@@ -1409,7 +1259,7 @@ export class GameEngine {
           }
         }
 
-        // Fire 75mm Main Cannon (Left Click or Right Aim Stick)
+        // Fire 75mm Main Cannon (Left Click or Mobile FIRE Button)
         if (wantFire && tank.cannonCooldown <= 0) {
           this.fireTankCannon(tank);
         }
@@ -1442,18 +1292,18 @@ export class GameEngine {
     }
 
     // Apply physical rotational smoothing to player aimAngle
-    if (!this.isTouchInput && !this.touchAimActive && this.canvasTouchId === null) {
+    if (!this.isTouchInput) {
       const diff = Math.atan2(Math.sin(targetAimAngle - p.aimAngle), Math.cos(targetAimAngle - p.aimAngle));
       p.aimAngle += Math.max(-38 * dt, Math.min(38 * dt, diff * 32 * dt));
     } else {
       const diff = Math.atan2(Math.sin(targetAimAngle - p.aimAngle), Math.cos(targetAimAngle - p.aimAngle));
       const maxStep = currentTurnRate * dt;
-      const smoothStep = Math.max(-maxStep, Math.min(maxStep, diff * 22 * dt));
+      const smoothStep = Math.max(-maxStep, Math.min(maxStep, diff * 24 * dt));
       p.aimAngle += smoothStep;
     }
     p.facing = Math.cos(p.aimAngle) >= 0 ? 1 : -1;
 
-    // Synchronize crosshair screen position with actual weapon direction
+    // Keep aim coordinates synced ahead of weapon direction (used for grenade throws)
     if (this.isTouchInput) {
       const crosshairDist = Math.min(300, wep.range * 0.44);
       this.mouseScreenX = p.x - this.cameraX + Math.cos(p.aimAngle) * crosshairDist;
@@ -3058,7 +2908,6 @@ export class GameEngine {
     ctx.save();
     ctx.setTransform(this.dpr * this.scale, 0, 0, this.dpr * this.scale, 0, 0);
 
-    const isAimingOrFiring = this.touchAimActive || this.canvasTouchId !== null || this.mouseDownLeft || this.touchFiring;
     const originY = this.player.inTankId !== null ? this.player.y - 44 : this.player.y - 28;
     const activeWep = WEAPONS[this.player.activeWeapon];
     const laserRange = this.player.inTankId !== null ? 620 : Math.min(500, activeWep.range * 0.75);
@@ -3091,9 +2940,9 @@ export class GameEngine {
       floatingTexts: this.floatingTexts,
       scenery: this.scenery,
       clouds: this.clouds,
-      showCrosshair: this.phase === 'playing' && (!this.isTouchInput || this.touchAimActive || this.canvasTouchId !== null),
+      showCrosshair: this.phase === 'playing' && !this.isTouchInput,
       recoilBloom: this.recoilBloom,
-      showAimLaser: this.phase === 'playing' && (isAimingOrFiring || this.isTouchInput),
+      showAimLaser: this.phase === 'playing' && (this.isTouchInput || this.mouseDownLeft),
       aimLaserOriginX: this.player.x + Math.cos(this.player.aimAngle) * (this.player.inTankId !== null ? 58 : activeWep.muzzleOffset),
       aimLaserOriginY: originY + Math.sin(this.player.aimAngle) * (this.player.inTankId !== null ? 58 : activeWep.muzzleOffset),
       aimLaserAngle: this.player.aimAngle,
@@ -3194,7 +3043,6 @@ export class GameEngine {
       pickupToastTimer: this.pickupToastTimer,
       aimWeight: this.aimWeightSetting,
       aimAssist: this.aimAssistEnabled,
-      quickTapAutoAim: this.quickTapEnabled,
       nextWeaponId: nextWep,
     });
   }

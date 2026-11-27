@@ -17,20 +17,20 @@ A 2.5D hand-illustrated cartoon battlefield action shooter where a modern soldie
   - **Drivable Battle Tank** (`E` to enter/exit) — 75mm main cannon, coaxial machine gun, and roadkill crushing!
   - **Parachute Supply Crates & Field Medkits** — Random weapons, ammo, tank airdrops, and camp/hero repairs drop dynamically onto the battlefield.
 - **Endless Escalating Difficulty & Scoring**: Every kill earns points amplified by combo streaks, multi-kill callouts, tank crushes, and frontline push bonuses. High scores persist locally.
-- **Desktop & Mobile Ready**: Full keyboard/mouse support plus responsive portrait & landscape multi-touch twin-stick controls (virtual Move stick, Aim & Fire stick, direct battlefield tap-to-shoot, and tactile Frag/MG, Roll, and Tank buttons).
+- **Desktop & Mobile Ready**: Full keyboard/mouse support plus responsive portrait & landscape multi-touch controls (auto-centering Left Move & Aim stick, dedicated Right `FIRE` trigger button, and tactile `SWAP`, `FRAG`/`MG`, `ROLL`, and `TANK` buttons).
 - **Zero-Dependency Procedural Audio & Canvas Art**: Crisp 2.5D cartoon vector rendering and synthesized Web Audio API sound effects.
 
 ## Controls
 
 | Action | Desktop | Mobile (Portrait & Landscape) |
 | --- | --- | --- |
-| Move / Drive Tank | `WASD` or `Arrow Keys` | Left Virtual Joystick (dynamic auto-centering under thumb) |
-| Aim & Shoot / Tank Cannon | `Mouse` + `Left-Click` | Weighted Right Aim Stick + Laser Sight (drag to aim/fire, quick-tap for threat lock) |
+| Move & Aim / Drive Tank | `WASD` or `Arrow Keys` | Left Virtual Joystick (aims straight in movement direction) |
+| Shoot / Tank Cannon | `Mouse` + `Left-Click` | Right `FIRE` button (morphs to `CANNON` in Tank) |
 | Frag Grenade / Tank Coax MG | `Right-Click` or `G` (`Space` in Tank) | `FRAG` button (morphs to hold `MG` in Tank) |
 | Enter / Exit Tank | `E` | `TANK` / `EXIT` button |
 | Switch Weapons | `1`–`5`, `Q`, or `Mouse Wheel` | `SWAP` button (right thumb) or tap weapon slot on bottom bar |
 | Combat Dodge Roll | `Shift` or `Space` | `ROLL` button |
-| Pause / Mute & Aim Tuning | `P` or `Esc` / `M` | `PAUSE` (tune Aim Weight, Sticky Magnetism, Auto-Aim) / `SFX` |
+| Pause / Mute & Aim Tuning | `P` or `Esc` / `M` | `PAUSE` (tune Aim Weight & Sticky Magnetism) / `SFX` |
 
 ## Development
 
