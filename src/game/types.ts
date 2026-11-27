@@ -339,5 +339,6 @@ export interface HudSnapshot {
   aimWeight: AimWeightSetting;
   aimAssist: boolean;
   nextWeaponId: WeaponId;
+  touchAimMode: 'idle' | 'auto' | 'manual';
 }
 

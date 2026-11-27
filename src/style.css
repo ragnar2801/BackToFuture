@@ -485,51 +485,69 @@ body.is-touch .touch-controls {
 
 .touch-fire-btn {
   position: relative;
-  width: 108px;
-  height: 108px;
+  width: 112px;
+  height: 112px;
+  padding: 0;
   border-radius: 999px;
-  border: 3px solid #161812;
-  background: radial-gradient(circle at 35% 28%, #ff8259 0%, #d93b26 62%, #991e14 100%);
+  border: 2.5px solid rgba(245, 206, 66, 0.58);
+  background: rgba(24, 28, 20, 0.52);
   box-shadow:
-    inset 0 3px 6px rgba(255, 224, 178, 0.38),
-    0 5px 0 rgba(14, 16, 11, 0.72),
-    0 0 0 3px rgba(245, 206, 66, 0.45);
+    inset 0 0 18px rgba(0, 0, 0, 0.42),
+    0 4px 0 rgba(14, 16, 11, 0.55);
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
   font-family: inherit;
   color: #fffaf0;
   pointer-events: auto;
   touch-action: none;
   cursor: pointer;
-  transition: transform 60ms ease, box-shadow 80ms ease, filter 80ms ease;
+  transition: border-color 90ms ease, box-shadow 90ms ease, background 90ms ease;
 }
 
-.touch-fire-btn.tank-fire-mode {
+.fire-stick-knob {
+  width: 86px;
+  height: 86px;
+  border-radius: 999px;
+  border: 3px solid #161812;
+  background: radial-gradient(circle at 35% 28%, #ff8259 0%, #d93b26 62%, #991e14 100%);
+  box-shadow:
+    inset 0 3px 6px rgba(255, 224, 178, 0.38),
+    0 4px 0 rgba(14, 16, 11, 0.72);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  pointer-events: none;
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
+  transition: filter 80ms ease;
+}
+
+.touch-fire-btn.tank-fire-mode .fire-stick-knob {
   background: radial-gradient(circle at 35% 28%, #ffe169 0%, #d98c1c 62%, #94560a 100%);
   color: #19160e;
 }
 
 .fire-btn-label {
-  font-size: 20px;
+  font-size: 19px;
   font-weight: 900;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.07em;
   line-height: 1;
   text-shadow: 0 2px 0 rgba(18, 12, 8, 0.45);
   pointer-events: none;
 }
 
 .touch-fire-btn.tank-fire-mode .fire-btn-label {
-  font-size: 16px;
+  font-size: 15px;
   text-shadow: none;
 }
 
 .fire-btn-sub {
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 900;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   color: #ffe88c;
   pointer-events: none;
 }
@@ -538,22 +556,23 @@ body.is-touch .touch-controls {
   color: #2b220d;
 }
 
-.touch-fire-btn:active,
 .touch-fire-btn.pressed {
-  transform: translateY(3px) scale(0.95);
-  filter: brightness(1.12);
+  border-color: #ffe047;
+  background: rgba(36, 42, 26, 0.68);
   box-shadow:
-    inset 0 2px 8px rgba(255, 240, 180, 0.5),
-    0 2px 0 rgba(14, 16, 11, 0.72),
-    0 0 22px rgba(255, 96, 48, 0.85);
+    inset 0 0 14px rgba(255, 224, 71, 0.24),
+    0 0 20px rgba(255, 214, 59, 0.55);
 }
 
-.touch-fire-btn.tank-fire-mode:active,
-.touch-fire-btn.tank-fire-mode.pressed {
+.touch-fire-btn.dragging {
+  border-color: #ff7738;
   box-shadow:
-    inset 0 2px 8px rgba(255, 248, 200, 0.55),
-    0 2px 0 rgba(14, 16, 11, 0.72),
-    0 0 22px rgba(255, 210, 66, 0.85);
+    inset 0 0 16px rgba(255, 110, 48, 0.3),
+    0 0 22px rgba(255, 96, 48, 0.65);
+}
+
+.touch-fire-btn.pressed .fire-stick-knob {
+  filter: brightness(1.1);
 }
 
 .touch-btn {
@@ -600,6 +619,12 @@ body.is-touch .touch-controls {
 
 .frag-btn {
   background: rgba(88, 110, 44, 0.9);
+  will-change: transform;
+}
+
+.frag-btn.aiming {
+  border-color: #c6ff4d;
+  box-shadow: 0 0 16px rgba(198, 255, 77, 0.72);
 }
 
 .frag-btn.coax-mode {
@@ -1311,20 +1336,25 @@ kbd {
   }
 
   .touch-fire-btn {
-    width: 92px;
-    height: 92px;
+    width: 96px;
+    height: 96px;
+  }
+
+  .fire-stick-knob {
+    width: 74px;
+    height: 74px;
   }
 
   .fire-btn-label {
-    font-size: 17px;
+    font-size: 16px;
   }
 
   .touch-fire-btn.tank-fire-mode .fire-btn-label {
-    font-size: 14px;
+    font-size: 13px;
   }
 
   .fire-btn-sub {
-    font-size: 9px;
+    font-size: 8.5px;
   }
 
   .touch-action-row {
@@ -1434,8 +1464,12 @@ kbd {
     height: 36px;
   }
   .touch-fire-btn {
-    width: 82px;
-    height: 82px;
+    width: 86px;
+    height: 86px;
+  }
+  .fire-stick-knob {
+    width: 66px;
+    height: 66px;
   }
   .weapon-slot {
     min-width: 44px;

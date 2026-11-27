@@ -49,6 +49,7 @@ const touchMoveZone = mustGet<HTMLDivElement>('touch-move-zone');
 const moveStickBase = mustGet<HTMLDivElement>('move-stick-base');
 const moveStickKnob = mustGet<HTMLDivElement>('move-stick-knob');
 const touchBtnFire = mustGet<HTMLButtonElement>('touch-btn-fire');
+const fireStickKnob = mustGet<HTMLDivElement>('fire-stick-knob');
 const touchFireLabel = mustGet<HTMLSpanElement>('touch-fire-label');
 const touchFireSub = mustGet<HTMLElement>('touch-fire-sub');
 const touchBtnSwap = mustGet<HTMLButtonElement>('touch-btn-swap');
@@ -89,8 +90,13 @@ function detectAndEnableTouchUi(): void {
     () => {
       document.body.classList.add('is-touch');
     },
-    { passive: true, once: true }
+    { passive: true }
   );
+  canvas.addEventListener('pointermove', (e) => {
+    if (e.pointerType === 'mouse') {
+      document.body.classList.remove('is-touch');
+    }
+  });
 }
 
 interface VirtualStickHandle {
@@ -395,16 +401,17 @@ function renderHud(h: HudSnapshot): void {
   touchBtnRoll.classList.toggle('hidden', h.inTank);
   touchBtnFrag.classList.toggle('coax-mode', h.inTank);
   touchBtnFire.classList.toggle('tank-fire-mode', h.inTank);
+  const modePrefix = h.touchAimMode === 'auto' ? 'AUTO • ' : h.touchAimMode === 'manual' ? 'AIM • ' : '';
   if (h.inTank) {
     touchFragLabel.textContent = 'MG';
     touchFragCount.textContent = 'HOLD';
     touchFireLabel.textContent = 'CANNON';
-    touchFireSub.textContent = '75MM';
+    touchFireSub.textContent = `${modePrefix}75MM`;
   } else {
     touchFragLabel.textContent = 'FRAG';
     touchFragCount.textContent = String(h.grenades);
     touchFireLabel.textContent = 'FIRE';
-    touchFireSub.textContent = WEAPONS[h.activeWeapon].shortName;
+    touchFireSub.textContent = `${modePrefix}${WEAPONS[h.activeWeapon].shortName}`;
   }
 
   for (const id of WEAPON_ORDER) {
@@ -452,7 +459,7 @@ detectAndEnableTouchUi();
 const engine = new GameEngine(canvas, renderHud);
 buildWeaponBar((id) => engine.selectWeapon(id));
 
-// Wire multi-touch virtual joystick (move + aim) & dedicated right-thumb FIRE button
+// Wire multi-touch Left Move Joystick (decoupled from aim during combat so kiting is effortless!)
 const moveStick = bindVirtualStick(
   moveStickBase,
   moveStickKnob,
@@ -469,17 +476,58 @@ const moveStick = bindVirtualStick(
   }
 );
 
+// Wire Right Hybrid FIRE Button-Stick (Tap/Hold = Smart Auto-Lock, Drag = Manual 360° Aim)
 let fireTouchId: number | null = null;
 let fireMousePointerId: number | null = null;
-let coaxTouchId: number | null = null;
-let coaxMousePointerId: number | null = null;
+let fireAnchorX = 0;
+let fireAnchorY = 0;
+let fireDragging = false;
+
+let fragTouchId: number | null = null;
+let fragMousePointerId: number | null = null;
+let fragIsCoax = false;
+let fragAnchorX = 0;
+let fragAnchorY = 0;
+let fragDragging = false;
+let fragNx = 0;
+let fragNy = 0;
+
 let lastIsLandscape = window.innerWidth >= window.innerHeight;
+
+const updateFireStickFromClient = (clientX: number, clientY: number) => {
+  const dx = clientX - fireAnchorX;
+  const dy = clientY - fireAnchorY;
+  const dist = Math.hypot(dx, dy);
+  const maxRadius = Math.max(24, (touchBtnFire.offsetWidth || 112) * 0.34);
+
+  if (!fireDragging && dist >= 15) {
+    fireDragging = true;
+  } else if (fireDragging && dist < 10) {
+    fireDragging = false;
+  }
+
+  if (!fireDragging) {
+    fireStickKnob.style.transform = 'translate3d(0, 2px, 0) scale(0.95)';
+    touchBtnFire.classList.remove('dragging');
+    engine.setTouchFireControl(true, false, 0, 0);
+  } else {
+    const clamped = Math.min(maxRadius, dist);
+    const ang = Math.atan2(dy, dx);
+    const kx = Math.cos(ang) * clamped;
+    const ky = Math.sin(ang) * clamped;
+    fireStickKnob.style.transform = `translate3d(${kx.toFixed(1)}px, ${ky.toFixed(1)}px, 0)`;
+    touchBtnFire.classList.add('dragging');
+    engine.setTouchFireControl(true, true, Math.cos(ang), Math.sin(ang));
+  }
+};
 
 const stopTouchFire = () => {
   fireTouchId = null;
   fireMousePointerId = null;
-  touchBtnFire.classList.remove('pressed');
-  engine.setTouchFire(false);
+  fireDragging = false;
+  touchBtnFire.classList.remove('pressed', 'dragging');
+  fireStickKnob.style.transform = 'translate3d(0, 0, 0)';
+  engine.setTouchFireControl(false, false, 0, 0);
 };
 
 touchBtnFire.addEventListener(
@@ -492,8 +540,27 @@ touchBtnFire.addEventListener(
     const t = e.changedTouches[0];
     if (!t) return;
     fireTouchId = t.identifier;
+    fireAnchorX = t.clientX;
+    fireAnchorY = t.clientY;
+    fireDragging = false;
     touchBtnFire.classList.add('pressed');
-    engine.setTouchFire(true);
+    updateFireStickFromClient(t.clientX, t.clientY);
+  },
+  { passive: false }
+);
+
+window.addEventListener(
+  'touchmove',
+  (e) => {
+    if (fireTouchId === null) return;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const t = e.changedTouches[i];
+      if (t.identifier === fireTouchId) {
+        e.preventDefault();
+        updateFireStickFromClient(t.clientX, t.clientY);
+        break;
+      }
+    }
   },
   { passive: false }
 );
@@ -515,8 +582,20 @@ touchBtnFire.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   e.stopPropagation();
   fireMousePointerId = e.pointerId;
+  fireAnchorX = e.clientX;
+  fireAnchorY = e.clientY;
+  fireDragging = false;
   touchBtnFire.classList.add('pressed');
-  engine.setTouchFire(true);
+  try {
+    touchBtnFire.setPointerCapture(e.pointerId);
+  } catch {}
+  updateFireStickFromClient(e.clientX, e.clientY);
+});
+
+touchBtnFire.addEventListener('pointermove', (e) => {
+  if (fireMousePointerId === null || e.pointerId !== fireMousePointerId) return;
+  e.preventDefault();
+  updateFireStickFromClient(e.clientX, e.clientY);
 });
 
 const endFireMouse = (e: PointerEvent) => {
@@ -526,13 +605,56 @@ const endFireMouse = (e: PointerEvent) => {
 window.addEventListener('pointerup', endFireMouse);
 window.addEventListener('pointercancel', endFireMouse);
 
+const resetFragUi = (cancelOnly: boolean) => {
+  const wasCoax = fragIsCoax;
+  const wasDragged = fragDragging;
+  const nx = fragNx;
+  const ny = fragNy;
+
+  fragTouchId = null;
+  fragMousePointerId = null;
+  fragIsCoax = false;
+  fragDragging = false;
+  fragNx = 0;
+  fragNy = 0;
+  touchBtnFrag.classList.remove('pressed', 'aiming');
+  touchBtnFrag.style.transform = '';
+
+  if (wasCoax) {
+    engine.setTouchCoax(false);
+  } else if (cancelOnly) {
+    engine.setTouchFragAim(false, false, 0, 0);
+  } else {
+    engine.releaseTouchFrag(wasDragged, nx, ny);
+  }
+};
+
+const updateFragStickFromClient = (clientX: number, clientY: number) => {
+  const dx = clientX - fragAnchorX;
+  const dy = clientY - fragAnchorY;
+  const dist = Math.hypot(dx, dy);
+  const maxThrowDrag = 66;
+
+  if (!fragDragging && dist >= 13) {
+    fragDragging = true;
+  }
+
+  if (fragDragging) {
+    const ratio = Math.min(1, Math.max(0.08, (dist - 10) / (maxThrowDrag - 10)));
+    const ang = Math.atan2(dy, dx);
+    fragNx = Math.cos(ang) * ratio;
+    fragNy = Math.sin(ang) * ratio;
+    const knobShift = Math.min(18, dist * 0.32);
+    touchBtnFrag.style.transform = `translate3d(${(Math.cos(ang) * knobShift).toFixed(1)}px, ${(Math.sin(ang) * knobShift).toFixed(1)}px, 0)`;
+    touchBtnFrag.classList.add('aiming');
+    engine.setTouchFragAim(true, true, fragNx, fragNy);
+  }
+};
+
 const resetAllTouchUi = () => {
   moveStick.reset();
   stopTouchFire();
-  coaxTouchId = null;
-  coaxMousePointerId = null;
-  touchBtnFrag.classList.remove('pressed');
-  engine.setTouchCoax(false);
+  resetFragUi(true);
   engine.resetTouchInputs();
 };
 
@@ -586,55 +708,108 @@ touchBtnFrag.addEventListener(
     e.preventDefault();
     e.stopPropagation();
     document.body.classList.add('is-touch');
+    if (fragTouchId !== null) return;
+    const t = e.changedTouches[0];
+    if (!t) return;
+    fragTouchId = t.identifier;
+    fragAnchorX = t.clientX;
+    fragAnchorY = t.clientY;
+    fragDragging = false;
+    fragNx = 0;
+    fragNy = 0;
+    touchBtnFrag.classList.add('pressed');
     if (isInTank) {
-      const t = e.changedTouches[0];
-      if (!t) return;
-      coaxTouchId = t.identifier;
-      touchBtnFrag.classList.add('pressed');
+      fragIsCoax = true;
       engine.setTouchCoax(true);
     } else {
-      touchBtnFrag.classList.add('pressed');
-      engine.triggerGrenade();
+      fragIsCoax = false;
+      engine.setTouchFragAim(true, false, 0, 0);
     }
   },
   { passive: false }
 );
 
-const endCoaxTouch = (e: TouchEvent) => {
-  touchBtnFrag.classList.remove('pressed');
-  if (coaxTouchId === null) return;
-  for (let i = 0; i < e.changedTouches.length; i++) {
-    if (e.changedTouches[i].identifier === coaxTouchId) {
-      coaxTouchId = null;
-      engine.setTouchCoax(false);
-      break;
+window.addEventListener(
+  'touchmove',
+  (e) => {
+    if (fragTouchId === null || fragIsCoax) return;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const t = e.changedTouches[i];
+      if (t.identifier === fragTouchId) {
+        e.preventDefault();
+        updateFragStickFromClient(t.clientX, t.clientY);
+        break;
+      }
     }
-  }
-};
-window.addEventListener('touchend', endCoaxTouch, { passive: true });
-window.addEventListener('touchcancel', endCoaxTouch, { passive: true });
+  },
+  { passive: false }
+);
+
+window.addEventListener(
+  'touchend',
+  (e) => {
+    if (fragTouchId === null) return;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === fragTouchId) {
+        resetFragUi(false);
+        break;
+      }
+    }
+  },
+  { passive: true }
+);
+
+window.addEventListener(
+  'touchcancel',
+  (e) => {
+    if (fragTouchId === null) return;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === fragTouchId) {
+        resetFragUi(true);
+        break;
+      }
+    }
+  },
+  { passive: true }
+);
 
 touchBtnFrag.addEventListener('pointerdown', (e) => {
-  if (e.pointerType === 'touch') return;
+  if (e.pointerType === 'touch' || fragMousePointerId !== null) return;
   e.preventDefault();
   e.stopPropagation();
+  fragMousePointerId = e.pointerId;
+  fragAnchorX = e.clientX;
+  fragAnchorY = e.clientY;
+  fragDragging = false;
+  fragNx = 0;
+  fragNy = 0;
+  touchBtnFrag.classList.add('pressed');
+  try {
+    touchBtnFrag.setPointerCapture(e.pointerId);
+  } catch {}
   if (isInTank) {
-    coaxMousePointerId = e.pointerId;
-    touchBtnFrag.classList.add('pressed');
+    fragIsCoax = true;
     engine.setTouchCoax(true);
   } else {
-    engine.triggerGrenade();
+    fragIsCoax = false;
+    engine.setTouchFragAim(true, false, 0, 0);
   }
 });
 
-const endCoaxMouse = (e: PointerEvent) => {
-  if (coaxMousePointerId === null || e.pointerId !== coaxMousePointerId) return;
-  coaxMousePointerId = null;
-  touchBtnFrag.classList.remove('pressed');
-  engine.setTouchCoax(false);
-};
-window.addEventListener('pointerup', endCoaxMouse);
-window.addEventListener('pointercancel', endCoaxMouse);
+touchBtnFrag.addEventListener('pointermove', (e) => {
+  if (fragMousePointerId === null || e.pointerId !== fragMousePointerId || fragIsCoax) return;
+  e.preventDefault();
+  updateFragStickFromClient(e.clientX, e.clientY);
+});
+
+window.addEventListener('pointerup', (e) => {
+  if (fragMousePointerId === null || e.pointerId !== fragMousePointerId) return;
+  resetFragUi(false);
+});
+window.addEventListener('pointercancel', (e) => {
+  if (fragMousePointerId === null || e.pointerId !== fragMousePointerId) return;
+  resetFragUi(true);
+});
 
 mustGet<HTMLButtonElement>('btn-play').addEventListener('click', () => {
   resetAllTouchUi();

@@ -90,15 +90,15 @@
 
         <!-- Mobile Multi-Touch Controls Layer (auto-shown on touch devices) -->
         <div id="touch-controls" class="touch-controls" aria-label="Touch Controls">
-          <!-- Left Virtual Move & Aim Joystick -->
+          <!-- Left Virtual Move Joystick -->
           <div id="touch-move-zone" class="move-zone">
             <div id="move-stick-base" class="stick-base">
-              <span class="stick-label">MOVE &amp; AIM</span>
+              <span class="stick-label">MOVE</span>
               <div id="move-stick-knob" class="stick-knob"></div>
             </div>
           </div>
 
-          <!-- Right Action Buttons + Dedicated FIRE Trigger -->
+          <!-- Right Action Buttons + Hybrid Smart-Lock / Drag-to-Aim FIRE Stick -->
           <div id="touch-right-zone" class="touch-right-zone">
             <div class="touch-action-row">
               <button id="touch-btn-swap" class="touch-btn swap-btn" type="button" title="Quick Swap Weapon">
@@ -107,14 +107,21 @@
               </button>
               <button id="touch-btn-tank" class="touch-btn tank-btn hidden" type="button">TANK</button>
               <button id="touch-btn-roll" class="touch-btn roll-btn" type="button">ROLL</button>
-              <button id="touch-btn-frag" class="touch-btn frag-btn" type="button">
+              <button id="touch-btn-frag" class="touch-btn frag-btn" type="button" title="Tap: Auto-Lob • Drag: Aim Ring">
                 <span id="touch-frag-label">FRAG</span>
                 <small id="touch-frag-count">4</small>
               </button>
             </div>
-            <button id="touch-btn-fire" class="touch-fire-btn" type="button" aria-label="Fire Weapon">
-              <span id="touch-fire-label" class="fire-btn-label">FIRE</span>
-              <small id="touch-fire-sub" class="fire-btn-sub">PISTOL</small>
+            <button
+              id="touch-btn-fire"
+              class="touch-fire-btn"
+              type="button"
+              aria-label="Hold to Auto-Lock Fire, Drag to Aim"
+            >
+              <div id="fire-stick-knob" class="fire-stick-knob">
+                <span id="touch-fire-label" class="fire-btn-label">FIRE</span>
+                <small id="touch-fire-sub" class="fire-btn-sub">PISTOL</small>
+              </div>
             </button>
           </div>
         </div>
@@ -130,9 +137,9 @@
             <span class="tank-hint"><strong>E</strong> Exit Tank</span>
           </div>
           <div id="controls-strip" class="controls-strip">
-            <span><strong>WASD</strong> Move</span>
-            <span><strong>Mouse</strong> Aim &amp; Shoot</span>
-            <span><strong>RMB / G</strong> Grenade</span>
+            <span><strong>WASD</strong> Move &amp; Kite</span>
+            <span><strong>Mouse</strong> 1:1 Aim &amp; Shoot</span>
+            <span><strong>RMB / G</strong> Aim &amp; Lob Grenade</span>
             <span><strong>Shift</strong> Dodge Roll</span>
             <span><strong>E</strong> Tank</span>
           </div>
@@ -162,17 +169,17 @@
             <div id="title-highscore" class="best-pill hidden">BEST: <strong id="title-highscore-val">0</strong></div>
           </div>
           <div class="key-grid desktop-keys">
-            <div><kbd>WASD</kbd> Move</div>
-            <div><kbd>LMB</kbd> Fire Weapon</div>
-            <div><kbd>RMB</kbd> / <kbd>G</kbd> Grenade</div>
+            <div><kbd>WASD</kbd> Move &amp; Kite</div>
+            <div><kbd>LMB</kbd> 1:1 Aim &amp; Fire</div>
+            <div><kbd>RMB</kbd> / <kbd>G</kbd> Aim Grenade</div>
             <div><kbd>E</kbd> Enter / Exit Tank</div>
             <div><kbd>1-5</kbd> / <kbd>Scroll</kbd> Weapons</div>
             <div><kbd>Shift</kbd> Dodge Roll</div>
           </div>
           <div class="touch-legend">
-            <span><strong>Left Stick</strong> Move &amp; Aim</span>
-            <span><strong>Right Button</strong> Hold to Fire</span>
-            <span><strong>Buttons</strong> Swap • Frag • Roll • Tank</span>
+            <span><strong>Left Stick</strong> Move &amp; Kite</span>
+            <span><strong>Fire</strong> Hold Auto-Aim • Drag Aim</span>
+            <span><strong>Frag</strong> Tap Auto • Drag Ring</span>
           </div>
         </div>
       </section>

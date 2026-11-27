@@ -67,6 +67,15 @@ export interface RenderState {
   aimLaserColor: string;
   aimLaserFired: boolean;
   lockedTargetId: number | null;
+  isAutoLocked: boolean;
+  lockedTargetPos: { x: number; y: number; isBoss: boolean } | null;
+  grenadePreview: {
+    startX: number;
+    startY: number;
+    targetX: number;
+    targetY: number;
+    radius: number;
+  } | null;
 }
 
 interface DrawableItem {
@@ -200,8 +209,11 @@ export class GameRenderer {
       item.draw(ctx);
     }
 
-    // 6. Tactical aim guide & lock-on reticle
+    // 6. Tactical aim guide, lock-on reticle & live grenade blast ring
     this.drawAimGuide(ctx, state);
+    if (state.grenadePreview) {
+      this.drawGrenadePreview(ctx, state);
+    }
 
     // 7. Projectiles (bullets, tracers, arrows, grenades, rockets, tank shells)
     this.drawProjectiles(ctx, state.projectiles, cameraX, viewW, state.time);
@@ -2668,8 +2680,6 @@ export class GameRenderer {
   }
 
   private drawAimGuide(ctx: CanvasRenderingContext2D, state: RenderState): void {
-    if (!state.showAimLaser) return;
-
     const {
       aimLaserOriginX,
       aimLaserOriginY,
@@ -2678,19 +2688,23 @@ export class GameRenderer {
       aimLaserSpread,
       aimLaserColor,
       aimLaserFired,
-      lockedTargetId,
+      lockedTargetPos,
+      isAutoLocked,
       time,
-      soldiers,
     } = state;
+
+    // 1. Highlight locked enemy / barracks target (works on both desktop cursor snap & mobile Smart Lock)
+    if (lockedTargetPos && state.player.alive) {
+      this.drawTargetLock(ctx, lockedTargetPos.x, lockedTargetPos.y, lockedTargetPos.isBoss, isAutoLocked, time);
+    }
+
+    if (!state.showAimLaser) return;
 
     ctx.save();
 
-    // 1. Highlight locked enemy target if present
-    if (lockedTargetId !== null) {
-      const target = soldiers.find((s) => s.id === lockedTargetId && s.hp > 0);
-      if (target) {
-        this.drawTargetLock(ctx, target.x, target.y - 18, target.kind === 'warlord' || target.kind === 'siege_ram', time);
-      }
+    // Slightly softer guide when passively walking on mobile vs crisp active beam when firing/dragging
+    if (!aimLaserFired && !isAutoLocked) {
+      ctx.globalAlpha = 0.62;
     }
 
     // 2. Tactical laser beam / aim guide
@@ -2756,20 +2770,27 @@ export class GameRenderer {
     ctx.restore();
   }
 
-  private drawTargetLock(ctx: CanvasRenderingContext2D, x: number, y: number, isBoss: boolean, time: number): void {
+  private drawTargetLock(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    isBoss: boolean,
+    isAutoLocked: boolean,
+    time: number
+  ): void {
     ctx.save();
     ctx.translate(x, y);
 
     const pulse = 1 + Math.sin(time * 12) * 0.08;
-    const r = (isBoss ? 32 : 22) * pulse;
+    const r = (isBoss ? 32 : 21) * pulse;
     const corner = isBoss ? 10 : 7;
 
-    ctx.strokeStyle = '#ff3d47';
-    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = isAutoLocked ? '#ffe047' : '#ff3d47';
+    ctx.lineWidth = isAutoLocked ? 2.8 : 2.3;
 
     // Corner brackets [ ]
-    // Top-left
     ctx.beginPath();
+    // Top-left
     ctx.moveTo(-r, -r + corner);
     ctx.lineTo(-r, -r);
     ctx.lineTo(-r + corner, -r);
@@ -2788,16 +2809,111 @@ export class GameRenderer {
     ctx.stroke();
 
     // Center target dot
-    ctx.fillStyle = '#ff3d47';
+    ctx.fillStyle = isAutoLocked ? '#ffe047' : '#ff3d47';
     ctx.beginPath();
-    ctx.arc(0, 0, 2, 0, Math.PI * 2);
+    ctx.arc(0, 0, 2.2, 0, Math.PI * 2);
     ctx.fill();
 
-    // Subtle "TARGET" tag
+    // Crisp "AUTO" or "LOCK" tag
     ctx.font = '900 9px "Trebuchet MS", sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillStyle = '#ffdf59';
-    ctx.fillText('TARGET', 0, -r - 4);
+    ctx.lineWidth = 2.6;
+    ctx.strokeStyle = '#171512';
+    const label = isAutoLocked ? 'AUTO' : 'TARGET';
+    ctx.strokeText(label, 0, -r - 4);
+    ctx.fillStyle = isAutoLocked ? '#ffe047' : '#ffdf59';
+    ctx.fillText(label, 0, -r - 4);
+
+    ctx.restore();
+  }
+
+  private drawGrenadePreview(ctx: CanvasRenderingContext2D, state: RenderState): void {
+    const gp = state.grenadePreview;
+    if (!gp || !state.player.alive) return;
+
+    const { startX, startY, targetX, targetY, radius } = gp;
+    const { time, soldiers } = state;
+
+    ctx.save();
+
+    // 1. Highlight every enemy inside the grenade's actual blast footprint
+    for (const s of soldiers) {
+      if (s.faction !== 'enemy' || s.hp <= 0) continue;
+      const dx = s.x - targetX;
+      const dy = (s.y - targetY) * 1.35;
+      if (Math.hypot(dx, dy) <= radius) {
+        const r = UNIT_STATS[s.kind].radius + 6;
+        ctx.save();
+        ctx.translate(s.x, s.y + 2);
+        ctx.scale(1, 0.45);
+        ctx.strokeStyle = '#b9f542';
+        ctx.lineWidth = 2.4;
+        ctx.beginPath();
+        ctx.arc(0, 0, r, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    // 2. Perspective ground blast circle on the battlefield road
+    const pulse = 1 + Math.sin(time * 10) * 0.03;
+    ctx.save();
+    ctx.translate(targetX, targetY);
+    ctx.scale(1, 0.52);
+
+    ctx.fillStyle = 'rgba(185, 245, 66, 0.15)';
+    ctx.beginPath();
+    ctx.arc(0, 0, radius * pulse, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(20, 24, 16, 0.65)';
+    ctx.lineWidth = 4.2;
+    ctx.setLineDash([10, 7]);
+    ctx.lineDashOffset = -time * 28;
+    ctx.beginPath();
+    ctx.arc(0, 0, radius * pulse, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = '#c6ff4d';
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    ctx.arc(0, 0, radius * pulse, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Inner bullseye ring
+    ctx.setLineDash([]);
+    ctx.strokeStyle = '#ffe259';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, 14, 0, Math.PI * 2);
+    ctx.moveTo(-20, 0);
+    ctx.lineTo(20, 0);
+    ctx.moveTo(0, -20);
+    ctx.lineTo(0, 20);
+    ctx.stroke();
+    ctx.restore();
+
+    // 3. Animated 2.5D parabolic arc from player hand to landing spot
+    const dist = Math.hypot(targetX - startX, targetY - startY);
+    const arcHeight = 58 + dist * 0.22;
+    const ctrlX = (startX + targetX) * 0.5;
+    const ctrlY = Math.min(startY, targetY) - arcHeight;
+
+    ctx.strokeStyle = 'rgba(20, 24, 16, 0.6)';
+    ctx.lineWidth = 4.5;
+    ctx.setLineDash([7, 7]);
+    ctx.lineDashOffset = -time * 42;
+    ctx.beginPath();
+    ctx.moveTo(startX, startY);
+    ctx.quadraticCurveTo(ctrlX, ctrlY, targetX, targetY);
+    ctx.stroke();
+
+    ctx.strokeStyle = '#d9ff66';
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    ctx.moveTo(startX, startY);
+    ctx.quadraticCurveTo(ctrlX, ctrlY, targetX, targetY);
+    ctx.stroke();
 
     ctx.restore();
   }

@@ -17,16 +17,16 @@ A 2.5D hand-illustrated cartoon battlefield action shooter where a modern soldie
   - **Drivable Battle Tank** (`E` to enter/exit) — 75mm main cannon, coaxial machine gun, and roadkill crushing!
   - **Parachute Supply Crates & Field Medkits** — Random weapons, ammo, tank airdrops, and camp/hero repairs drop dynamically onto the battlefield.
 - **Endless Escalating Difficulty & Scoring**: Every kill earns points amplified by combo streaks, multi-kill callouts, tank crushes, and frontline push bonuses. High scores persist locally.
-- **Desktop & Mobile Ready**: Full keyboard/mouse support plus responsive portrait & landscape multi-touch controls (auto-centering Left Move & Aim stick, dedicated Right `FIRE` trigger button, and tactile `SWAP`, `FRAG`/`MG`, `ROLL`, and `TANK` buttons).
+- **Desktop & Mobile Ready**: Crisp `1:1` mouse aim on desktop plus *Brawl Stars*-style multi-touch controls on mobile (Left `MOVE` stick for effortless kiting, hybrid Right `FIRE` stick — hold to Smart Auto-Lock or drag for manual skillshot aim — and `FRAG` tap-to-auto-lob or drag-for-blast-ring).
 - **Zero-Dependency Procedural Audio & Canvas Art**: Crisp 2.5D cartoon vector rendering and synthesized Web Audio API sound effects.
 
 ## Controls
 
 | Action | Desktop | Mobile (Portrait & Landscape) |
 | --- | --- | --- |
-| Move & Aim / Drive Tank | `WASD` or `Arrow Keys` | Left Virtual Joystick (aims straight in movement direction) |
-| Shoot / Tank Cannon | `Mouse` + `Left-Click` | Right `FIRE` button (morphs to `CANNON` in Tank) |
-| Frag Grenade / Tank Coax MG | `Right-Click` or `G` (`Space` in Tank) | `FRAG` button (morphs to hold `MG` in Tank) |
+| Move & Kite / Drive Tank | `WASD` or `Arrow Keys` | Left Virtual Joystick (freely kite backward while firing!) |
+| Shoot / Tank Cannon | `Mouse` (`1:1` Aim) + `Left-Click` | Hold `FIRE` (`CANNON`) for Smart Auto-Lock, or **Drag** for Manual Aim |
+| Frag Grenade / Tank Coax MG | Hold/Click `Right-Click` or `G` (`Space` in Tank) | Tap `FRAG` for Smart Lob, or **Drag** to place Blast Ring (`MG` in Tank) |
 | Enter / Exit Tank | `E` | `TANK` / `EXIT` button |
 | Switch Weapons | `1`–`5`, `Q`, or `Mouse Wheel` | `SWAP` button (right thumb) or tap weapon slot on bottom bar |
 | Combat Dodge Roll | `Shift` or `Space` | `ROLL` button |
