@@ -336,9 +336,9 @@ export interface HudSnapshot {
   breakdown: KillBreakdown;
   pickupToast: string;
   pickupToastTimer: number;
-  aimWeight: AimWeightSetting;
-  aimAssist: boolean;
+  aimWeight?: AimWeightSetting;
+  aimAssist?: boolean;
   nextWeaponId: WeaponId;
-  touchAimMode: 'idle' | 'auto' | 'manual';
+  touchAimMode?: 'idle' | 'auto' | 'manual';
 }
 

@@ -98,7 +98,7 @@
             </div>
           </div>
 
-          <!-- Right Action Buttons + Hybrid Smart-Lock / Drag-to-Aim FIRE Stick -->
+          <!-- Right Action Buttons + Pure FIRE Button (No stick control) -->
           <div id="touch-right-zone" class="touch-right-zone">
             <div class="touch-action-row">
               <button id="touch-btn-swap" class="touch-btn swap-btn" type="button" title="Quick Swap Weapon">
@@ -107,7 +107,7 @@
               </button>
               <button id="touch-btn-tank" class="touch-btn tank-btn hidden" type="button">TANK</button>
               <button id="touch-btn-roll" class="touch-btn roll-btn" type="button">ROLL</button>
-              <button id="touch-btn-frag" class="touch-btn frag-btn" type="button" title="Tap: Auto-Lob • Drag: Aim Ring">
+              <button id="touch-btn-frag" class="touch-btn frag-btn" type="button" title="Lob Frag Grenade">
                 <span id="touch-frag-label">FRAG</span>
                 <small id="touch-frag-count">4</small>
               </button>
@@ -116,12 +116,10 @@
               id="touch-btn-fire"
               class="touch-fire-btn"
               type="button"
-              aria-label="Hold to Auto-Lock Fire, Drag to Aim"
+              aria-label="Fire Straight Forward"
             >
-              <div id="fire-stick-knob" class="fire-stick-knob">
-                <span id="touch-fire-label" class="fire-btn-label">FIRE</span>
-                <small id="touch-fire-sub" class="fire-btn-sub">PISTOL</small>
-              </div>
+              <span id="touch-fire-label" class="fire-btn-label">FIRE</span>
+              <small id="touch-fire-sub" class="fire-btn-sub">PISTOL</small>
             </button>
           </div>
         </div>
@@ -137,9 +135,9 @@
             <span class="tank-hint"><strong>E</strong> Exit Tank</span>
           </div>
           <div id="controls-strip" class="controls-strip">
-            <span><strong>WASD</strong> Move &amp; Kite</span>
-            <span><strong>Mouse</strong> 1:1 Aim &amp; Shoot</span>
-            <span><strong>RMB / G</strong> Aim &amp; Lob Grenade</span>
+            <span><strong>WASD</strong> Move &amp; Align</span>
+            <span><strong>LMB / Space</strong> Fire Straight</span>
+            <span><strong>RMB / G</strong> Frag Grenade</span>
             <span><strong>Shift</strong> Dodge Roll</span>
             <span><strong>E</strong> Tank</span>
           </div>
@@ -169,17 +167,17 @@
             <div id="title-highscore" class="best-pill hidden">BEST: <strong id="title-highscore-val">0</strong></div>
           </div>
           <div class="key-grid desktop-keys">
-            <div><kbd>WASD</kbd> Move &amp; Kite</div>
-            <div><kbd>LMB</kbd> 1:1 Aim &amp; Fire</div>
-            <div><kbd>RMB</kbd> / <kbd>G</kbd> Aim Grenade</div>
+            <div><kbd>WASD</kbd> Move &amp; Align</div>
+            <div><kbd>LMB</kbd> / <kbd>Space</kbd> Fire Straight</div>
+            <div><kbd>RMB</kbd> / <kbd>G</kbd> Frag Grenade</div>
             <div><kbd>E</kbd> Enter / Exit Tank</div>
             <div><kbd>1-5</kbd> / <kbd>Scroll</kbd> Weapons</div>
             <div><kbd>Shift</kbd> Dodge Roll</div>
           </div>
           <div class="touch-legend">
-            <span><strong>Left Stick</strong> Move &amp; Kite</span>
-            <span><strong>Fire</strong> Hold Auto-Aim • Drag Aim</span>
-            <span><strong>Frag</strong> Tap Auto • Drag Ring</span>
+            <span><strong>Left Stick</strong> Move &amp; Position</span>
+            <span><strong>Fire</strong> Hold to Shoot Straight</span>
+            <span><strong>Frag</strong> Lob Grenade</span>
           </div>
         </div>
       </section>
@@ -189,14 +187,6 @@
         <div class="card small-card">
           <p class="eyebrow">BATTLEFIELD PAUSED</p>
           <h2 class="overlay-heading">HOLD THE LINE</h2>
-
-          <div class="pause-settings">
-            <span class="settings-title">AIM CONTROLS</span>
-            <div class="settings-row">
-              <button id="btn-toggle-weight" class="setting-btn" type="button" title="Cycle Aim Weight / Inertia">AIM WEIGHT: BALANCED</button>
-              <button id="btn-toggle-assist" class="setting-btn" type="button" title="Toggle Sticky Aim Assist">MAGNETISM: ON</button>
-            </div>
-          </div>
 
           <div class="pause-actions">
             <button id="btn-resume" class="primary-btn" type="button">RESUME BATTLE</button>
