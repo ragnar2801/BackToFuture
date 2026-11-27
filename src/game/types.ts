@@ -43,7 +43,10 @@ export interface WeaponDef {
   tracerColor: string;
   accentColor: string;
   spinUpTime?: number;
+  turnRate?: number; // radians per second rotational weight / inertia
 }
+
+export type AimWeightSetting = 'responsive' | 'balanced' | 'heavy';
 
 export interface UnitStats {
   kind: UnitKind;
@@ -333,5 +336,9 @@ export interface HudSnapshot {
   breakdown: KillBreakdown;
   pickupToast: string;
   pickupToastTimer: number;
+  aimWeight: AimWeightSetting;
+  aimAssist: boolean;
+  quickTapAutoAim: boolean;
+  nextWeaponId: WeaponId;
 }
 

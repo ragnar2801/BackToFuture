@@ -101,6 +101,10 @@
           <!-- Right Virtual Aim/Fire Joystick + Action Buttons -->
           <div id="touch-right-zone" class="touch-right-zone">
             <div class="touch-action-row">
+              <button id="touch-btn-swap" class="touch-btn swap-btn" type="button" title="Quick Swap Weapon">
+                <span id="touch-swap-label">SWAP</span>
+                <small id="touch-swap-wep">PISTOL</small>
+              </button>
               <button id="touch-btn-tank" class="touch-btn tank-btn hidden" type="button">TANK</button>
               <button id="touch-btn-roll" class="touch-btn roll-btn" type="button">ROLL</button>
               <button id="touch-btn-frag" class="touch-btn frag-btn" type="button">
@@ -166,9 +170,10 @@
             <div><kbd>Shift</kbd> Dodge Roll</div>
           </div>
           <div class="touch-legend">
-            <span><strong>Left Stick</strong> Move</span>
-            <span><strong>Right Stick / Tap</strong> Aim &amp; Shoot</span>
-            <span><strong>Buttons</strong> Frag • Roll • Tank</span>
+            <span><strong>Left Zone</strong> Move (Auto-Centers)</span>
+            <span><strong>Right Stick</strong> Drag to Aim &amp; Fire</span>
+            <span><strong>Quick Tap</strong> Auto-Aim Nearest Threat</span>
+            <span><strong>Buttons</strong> Swap • Frag • Roll • Tank</span>
           </div>
         </div>
       </section>
@@ -178,6 +183,16 @@
         <div class="card small-card">
           <p class="eyebrow">BATTLEFIELD PAUSED</p>
           <h2 class="overlay-heading">HOLD THE LINE</h2>
+
+          <div class="pause-settings">
+            <span class="settings-title">TACTICAL AIM CONTROLS</span>
+            <div class="settings-row">
+              <button id="btn-toggle-weight" class="setting-btn" type="button" title="Cycle Aim Weight / Inertia">WEIGHT: BALANCED</button>
+              <button id="btn-toggle-assist" class="setting-btn" type="button" title="Toggle Sticky Aim Assist">MAGNETISM: ON</button>
+              <button id="btn-toggle-quicktap" class="setting-btn" type="button" title="Toggle Quick-Tap Auto Threat Lock">QUICK-TAP: ON</button>
+            </div>
+          </div>
+
           <div class="pause-actions">
             <button id="btn-resume" class="primary-btn" type="button">RESUME BATTLE</button>
             <button id="btn-restart-pause" class="secondary-btn" type="button">RESTART</button>

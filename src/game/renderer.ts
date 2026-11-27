@@ -58,6 +58,15 @@ export interface RenderState {
   clouds: CloudProp[];
   showCrosshair: boolean;
   recoilBloom: number;
+  showAimLaser: boolean;
+  aimLaserOriginX: number;
+  aimLaserOriginY: number;
+  aimLaserAngle: number;
+  aimLaserRange: number;
+  aimLaserSpread: number;
+  aimLaserColor: string;
+  aimLaserFired: boolean;
+  lockedTargetId: number | null;
 }
 
 interface DrawableItem {
@@ -191,7 +200,10 @@ export class GameRenderer {
       item.draw(ctx);
     }
 
-    // 6. Projectiles (bullets, tracers, arrows, grenades, rockets, tank shells)
+    // 6. Tactical aim guide & lock-on reticle
+    this.drawAimGuide(ctx, state);
+
+    // 7. Projectiles (bullets, tracers, arrows, grenades, rockets, tank shells)
     this.drawProjectiles(ctx, state.projectiles, cameraX, viewW, state.time);
 
     // 7. Particles (explosions, smoke, muzzle flashes, shell casings, wood splinters, slashes)
@@ -2653,5 +2665,140 @@ export class GameRenderer {
     ctx.lineTo(x, y + rad);
     ctx.quadraticCurveTo(x, y, x + rad, y);
     ctx.closePath();
+  }
+
+  private drawAimGuide(ctx: CanvasRenderingContext2D, state: RenderState): void {
+    if (!state.showAimLaser) return;
+
+    const {
+      aimLaserOriginX,
+      aimLaserOriginY,
+      aimLaserAngle,
+      aimLaserRange,
+      aimLaserSpread,
+      aimLaserColor,
+      aimLaserFired,
+      lockedTargetId,
+      time,
+      soldiers,
+    } = state;
+
+    ctx.save();
+
+    // 1. Highlight locked enemy target if present
+    if (lockedTargetId !== null) {
+      const target = soldiers.find((s) => s.id === lockedTargetId && s.hp > 0);
+      if (target) {
+        this.drawTargetLock(ctx, target.x, target.y - 18, target.kind === 'warlord' || target.kind === 'siege_ram', time);
+      }
+    }
+
+    // 2. Tactical laser beam / aim guide
+    const endX = aimLaserOriginX + Math.cos(aimLaserAngle) * aimLaserRange;
+    const endY = aimLaserOriginY + Math.sin(aimLaserAngle) * aimLaserRange;
+
+    // Shotgun spread cone
+    if (aimLaserSpread > 0.08) {
+      const leftAngle = aimLaserAngle - aimLaserSpread * 0.5;
+      const rightAngle = aimLaserAngle + aimLaserSpread * 0.5;
+      const lx = aimLaserOriginX + Math.cos(leftAngle) * aimLaserRange;
+      const ly = aimLaserOriginY + Math.sin(leftAngle) * aimLaserRange;
+      const rx = aimLaserOriginX + Math.cos(rightAngle) * aimLaserRange;
+      const ry = aimLaserOriginY + Math.sin(rightAngle) * aimLaserRange;
+
+      // Soft wedge fill
+      ctx.beginPath();
+      ctx.moveTo(aimLaserOriginX, aimLaserOriginY);
+      ctx.lineTo(lx, ly);
+      ctx.arc(aimLaserOriginX, aimLaserOriginY, aimLaserRange, leftAngle, rightAngle);
+      ctx.closePath();
+      ctx.fillStyle = aimLaserFired ? 'rgba(255, 120, 50, 0.12)' : 'rgba(245, 206, 66, 0.07)';
+      ctx.fill();
+
+      // Flanking cone lines
+      ctx.strokeStyle = aimLaserFired ? 'rgba(255, 140, 60, 0.5)' : 'rgba(245, 206, 66, 0.35)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 6]);
+      ctx.lineDashOffset = -time * 24;
+      ctx.beginPath();
+      ctx.moveTo(aimLaserOriginX, aimLaserOriginY);
+      ctx.lineTo(lx, ly);
+      ctx.moveTo(aimLaserOriginX, aimLaserOriginY);
+      ctx.lineTo(rx, ry);
+      ctx.stroke();
+    }
+
+    // Central laser / bullet trajectory line
+    ctx.setLineDash([8, 6]);
+    ctx.lineDashOffset = -time * 36;
+    ctx.lineWidth = aimLaserFired ? 2.5 : 1.8;
+    ctx.strokeStyle = aimLaserColor;
+    ctx.beginPath();
+    ctx.moveTo(aimLaserOriginX, aimLaserOriginY);
+    ctx.lineTo(endX, endY);
+    ctx.stroke();
+
+    // Soft laser glow underlay
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = aimLaserFired ? 'rgba(255, 70, 40, 0.28)' : 'rgba(255, 225, 80, 0.18)';
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(aimLaserOriginX, aimLaserOriginY);
+    ctx.lineTo(endX, endY);
+    ctx.stroke();
+
+    // Tip pip
+    ctx.fillStyle = aimLaserColor;
+    ctx.beginPath();
+    ctx.arc(endX, endY, aimLaserFired ? 3.5 : 2.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  private drawTargetLock(ctx: CanvasRenderingContext2D, x: number, y: number, isBoss: boolean, time: number): void {
+    ctx.save();
+    ctx.translate(x, y);
+
+    const pulse = 1 + Math.sin(time * 12) * 0.08;
+    const r = (isBoss ? 32 : 22) * pulse;
+    const corner = isBoss ? 10 : 7;
+
+    ctx.strokeStyle = '#ff3d47';
+    ctx.lineWidth = 2.5;
+
+    // Corner brackets [ ]
+    // Top-left
+    ctx.beginPath();
+    ctx.moveTo(-r, -r + corner);
+    ctx.lineTo(-r, -r);
+    ctx.lineTo(-r + corner, -r);
+    // Top-right
+    ctx.moveTo(r - corner, -r);
+    ctx.lineTo(r, -r);
+    ctx.lineTo(r, -r + corner);
+    // Bottom-right
+    ctx.moveTo(r, r - corner);
+    ctx.lineTo(r, r);
+    ctx.lineTo(r - corner, r);
+    // Bottom-left
+    ctx.moveTo(-r + corner, r);
+    ctx.lineTo(-r, r);
+    ctx.lineTo(-r, r - corner);
+    ctx.stroke();
+
+    // Center target dot
+    ctx.fillStyle = '#ff3d47';
+    ctx.beginPath();
+    ctx.arc(0, 0, 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Subtle "TARGET" tag
+    ctx.font = '900 9px "Trebuchet MS", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffdf59';
+    ctx.fillText('TARGET', 0, -r - 4);
+
+    ctx.restore();
   }
 }

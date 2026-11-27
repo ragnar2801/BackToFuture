@@ -45,16 +45,23 @@ const tankBar = mustGet<HTMLDivElement>('tank-bar');
 const controlsStrip = mustGet<HTMLDivElement>('controls-strip');
 
 const touchControls = mustGet<HTMLDivElement>('touch-controls');
+const touchMoveZone = mustGet<HTMLDivElement>('touch-move-zone');
 const moveStickBase = mustGet<HTMLDivElement>('move-stick-base');
 const moveStickKnob = mustGet<HTMLDivElement>('move-stick-knob');
 const aimStickBase = mustGet<HTMLDivElement>('aim-stick-base');
 const aimStickKnob = mustGet<HTMLDivElement>('aim-stick-knob');
 const aimStickLabel = mustGet<HTMLSpanElement>('aim-stick-label');
+const touchBtnSwap = mustGet<HTMLButtonElement>('touch-btn-swap');
+const touchSwapWep = mustGet<HTMLElement>('touch-swap-wep');
 const touchBtnTank = mustGet<HTMLButtonElement>('touch-btn-tank');
 const touchBtnRoll = mustGet<HTMLButtonElement>('touch-btn-roll');
 const touchBtnFrag = mustGet<HTMLButtonElement>('touch-btn-frag');
 const touchFragLabel = mustGet<HTMLSpanElement>('touch-frag-label');
 const touchFragCount = mustGet<HTMLElement>('touch-frag-count');
+
+const btnToggleWeight = mustGet<HTMLButtonElement>('btn-toggle-weight');
+const btnToggleAssist = mustGet<HTMLButtonElement>('btn-toggle-assist');
+const btnToggleQuicktap = mustGet<HTMLButtonElement>('btn-toggle-quicktap');
 
 const titleHighscore = mustGet<HTMLDivElement>('title-highscore');
 const titleHighscoreVal = mustGet<HTMLElement>('title-highscore-val');
@@ -91,24 +98,37 @@ interface VirtualStickHandle {
   reset: () => void;
 }
 
+interface VirtualStickOptions {
+  zoneEl?: HTMLElement;
+  isFloating?: boolean;
+  onTap?: () => void;
+}
+
 function bindVirtualStick(
   baseEl: HTMLElement,
   knobEl: HTMLElement,
-  onChange: (active: boolean, nx: number, ny: number, distRatio: number) => void
+  onChange: (active: boolean, nx: number, ny: number, distRatio: number) => void,
+  options?: VirtualStickOptions
 ): VirtualStickHandle {
   let activeTouchId: number | null = null;
   let activeMousePointerId: number | null = null;
+  let touchStartTime = 0;
+  let maxTouchDist = 0;
+
+  const targetListenerEl = options?.zoneEl ?? baseEl;
 
   const updateFromClient = (clientX: number, clientY: number) => {
     const rect = baseEl.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
     const cx = rect.left + rect.width * 0.5;
     const cy = rect.top + rect.height * 0.5;
-    const maxRadius = Math.max(22, rect.width * 0.36);
+    const maxRadius = Math.max(24, rect.width * 0.38);
 
     const dx = clientX - cx;
     const dy = clientY - cy;
     const rawDist = Math.hypot(dx, dy);
+    maxTouchDist = Math.max(maxTouchDist, rawDist);
+
     const clampedDist = Math.min(maxRadius, rawDist);
     const ang = Math.atan2(dy, dx);
     const kx = rawDist > 0.5 ? Math.cos(ang) * clampedDist : 0;
@@ -131,11 +151,14 @@ function bindVirtualStick(
     activeMousePointerId = null;
     baseEl.classList.remove('active');
     knobEl.style.transform = 'translate3d(0, 0, 0)';
+    if (options?.isFloating) {
+      baseEl.style.transform = '';
+    }
     onChange(false, 0, 0, 0);
   };
 
   // True multi-touch tracking by touch.identifier across window so thumbs never drop near screen edges!
-  baseEl.addEventListener(
+  targetListenerEl.addEventListener(
     'touchstart',
     (e) => {
       e.preventDefault();
@@ -145,7 +168,25 @@ function bindVirtualStick(
       const touch = e.changedTouches[0];
       if (!touch) return;
       activeTouchId = touch.identifier;
+      touchStartTime = performance.now();
+      maxTouchDist = 0;
       baseEl.classList.add('active');
+
+      if (options?.isFloating && options.zoneEl) {
+        // Dynamically anchor base under thumb touchdown within the capture zone
+        const zoneRect = options.zoneEl.getBoundingClientRect();
+        const halfW = (baseEl.offsetWidth || 112) * 0.5;
+        const halfH = (baseEl.offsetHeight || 112) * 0.5;
+        const clampedX = Math.max(halfW + 4, Math.min(zoneRect.width - halfW - 4, touch.clientX - zoneRect.left));
+        const clampedY = Math.max(halfH + 4, Math.min(zoneRect.height - halfH - 4, touch.clientY - zoneRect.top));
+        // Default base center
+        const defaultCenterLeft = 24 + halfW;
+        const defaultCenterTop = zoneRect.height - 24 - halfH;
+        const offX = clampedX - defaultCenterLeft;
+        const offY = clampedY - defaultCenterTop;
+        baseEl.style.transform = `translate3d(${offX.toFixed(1)}px, ${offY.toFixed(1)}px, 0)`;
+      }
+
       updateFromClient(touch.clientX, touch.clientY);
     },
     { passive: false }
@@ -171,6 +212,10 @@ function bindVirtualStick(
     if (activeTouchId === null) return;
     for (let i = 0; i < e.changedTouches.length; i++) {
       if (e.changedTouches[i].identifier === activeTouchId) {
+        const elapsed = performance.now() - touchStartTime;
+        if (options?.onTap && elapsed < 240 && maxTouchDist < 16) {
+          options.onTap();
+        }
         reset();
         break;
       }
@@ -342,6 +387,14 @@ function renderHud(h: HudSnapshot): void {
   controlsStrip.classList.toggle('hidden', h.inTank);
 
   // Mobile dynamic touch buttons
+  touchBtnSwap.classList.toggle('hidden', h.inTank);
+  const nextDef = WEAPONS[h.nextWeaponId];
+  touchSwapWep.textContent = nextDef ? nextDef.shortName : 'PISTOL';
+
+  btnToggleWeight.textContent = `AIM WEIGHT: ${h.aimWeight.toUpperCase()}`;
+  btnToggleAssist.textContent = `MAGNETISM: ${h.aimAssist ? 'ON' : 'OFF'}`;
+  btnToggleQuicktap.textContent = `QUICK-TAP: ${h.quickTapAutoAim ? 'ON' : 'OFF'}`;
+
   touchBtnTank.classList.toggle('hidden', !h.inTank && !h.tankPrompt);
   touchBtnTank.textContent = h.inTank ? 'EXIT' : 'TANK';
   touchBtnRoll.classList.toggle('hidden', h.inTank);
@@ -402,21 +455,51 @@ const engine = new GameEngine(canvas, renderHud);
 buildWeaponBar((id) => engine.selectWeapon(id));
 
 // Wire multi-touch virtual joysticks & action buttons
-const moveStick = bindVirtualStick(moveStickBase, moveStickKnob, (active, nx, ny) => {
-  if (!active) {
-    engine.setTouchMove(0, 0);
-  } else {
-    engine.setTouchMove(nx, ny);
+const moveStick = bindVirtualStick(
+  moveStickBase,
+  moveStickKnob,
+  (active, nx, ny) => {
+    if (!active) {
+      engine.setTouchMove(0, 0);
+    } else {
+      engine.setTouchMove(nx, ny);
+    }
+  },
+  {
+    zoneEl: touchMoveZone,
+    isFloating: true,
   }
-});
+);
 
-const aimStick = bindVirtualStick(aimStickBase, aimStickKnob, (active, nx, ny, ratio) => {
-  if (!active) {
-    engine.setTouchAim(false, 0, 0, false);
-  } else {
-    engine.setTouchAim(true, nx, ny, ratio > 0.22);
+const aimStick = bindVirtualStick(
+  aimStickBase,
+  aimStickKnob,
+  (active, nx, ny, ratio) => {
+    if (!active) {
+      engine.setTouchAim(false, 0, 0, 0, false);
+      aimStickKnob.classList.remove('aiming', 'firing');
+      aimStickLabel.textContent = isInTank ? 'CANNON' : 'AIM & FIRE';
+    } else {
+      const isFiring = ratio >= 0.40;
+      engine.setTouchAim(true, nx, ny, ratio, isFiring);
+      if (isFiring) {
+        aimStickKnob.classList.add('firing');
+        aimStickKnob.classList.remove('aiming');
+        aimStickLabel.textContent = isInTank ? 'FIRING' : 'FIRING!';
+      } else if (ratio >= 0.14) {
+        aimStickKnob.classList.add('aiming');
+        aimStickKnob.classList.remove('firing');
+        aimStickLabel.textContent = isInTank ? 'AIMING' : 'AIMING';
+      } else {
+        aimStickKnob.classList.remove('aiming', 'firing');
+        aimStickLabel.textContent = isInTank ? 'CANNON' : 'AIM & FIRE';
+      }
+    }
+  },
+  {
+    onTap: () => engine.quickTapAutoFire(),
   }
-});
+);
 
 let coaxTouchId: number | null = null;
 let coaxMousePointerId: number | null = null;
@@ -472,6 +555,7 @@ function bindInstantTap(el: HTMLElement, onTap: () => void): void {
   });
 }
 
+bindInstantTap(touchBtnSwap, () => engine.cycleWeapon(1));
 bindInstantTap(touchBtnTank, () => engine.triggerTankToggle());
 bindInstantTap(touchBtnRoll, () => engine.triggerDodge());
 
@@ -552,5 +636,9 @@ btnPause.addEventListener('click', () => {
   resetAllTouchUi();
   engine.togglePause();
 });
+
+btnToggleWeight.addEventListener('click', () => engine.cycleAimWeight());
+btnToggleAssist.addEventListener('click', () => engine.toggleAimAssist());
+btnToggleQuicktap.addEventListener('click', () => engine.toggleQuickTap());
 
 engine.startLoop();

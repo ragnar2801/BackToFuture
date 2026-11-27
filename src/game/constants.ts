@@ -75,6 +75,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     muzzleOffset: 24,
     tracerColor: '#fff08a',
     accentColor: '#e6c555',
+    turnRate: 28, // Fast, nimble sidearm
   },
   shotgun: {
     id: 'shotgun',
@@ -96,6 +97,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     muzzleOffset: 30,
     tracerColor: '#ffd966',
     accentColor: '#d97b38',
+    turnRate: 20, // Chunky pump-action weight
   },
   rifle: {
     id: 'rifle',
@@ -117,6 +119,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     muzzleOffset: 32,
     tracerColor: '#fff299',
     accentColor: '#66b55a',
+    turnRate: 22, // Balanced tactical rifle
   },
   minigun: {
     id: 'minigun',
@@ -139,6 +142,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     tracerColor: '#ffe359',
     accentColor: '#e8a035',
     spinUpTime: 0.16,
+    turnRate: 14, // Heavy rotating barrels with solid inertia
   },
   rocket: {
     id: 'rocket',
@@ -160,7 +164,17 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     muzzleOffset: 32,
     tracerColor: '#ff7b33',
     accentColor: '#e04838',
+    turnRate: 11, // Heavy shoulder tube launcher
   },
+};
+
+export const AIM_ASSIST_CONFIG = {
+  coneAngle: 0.32, // ~18.3 degrees capture cone
+  maxRange: 560,
+  magneticPull: 0.52, // Sticky pull factor toward target center
+  turnFriction: 0.65, // Rotational speed damping when sweeping across a target
+  aimStickDeadzone: 0.14,
+  aimStickFireThreshold: 0.40,
 };
 
 export const UNIT_STATS: Record<UnitKind, UnitStats> = {

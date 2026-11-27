@@ -24,13 +24,13 @@ A 2.5D hand-illustrated cartoon battlefield action shooter where a modern soldie
 
 | Action | Desktop | Mobile (Portrait & Landscape) |
 | --- | --- | --- |
-| Move / Drive Tank | `WASD` or `Arrow Keys` | Left Virtual Joystick |
-| Aim & Shoot / Tank Cannon | `Mouse` + `Left-Click` | Right Aim & Fire Joystick (or tap/drag field) |
+| Move / Drive Tank | `WASD` or `Arrow Keys` | Left Virtual Joystick (dynamic auto-centering under thumb) |
+| Aim & Shoot / Tank Cannon | `Mouse` + `Left-Click` | Weighted Right Aim Stick + Laser Sight (drag to aim/fire, quick-tap for threat lock) |
 | Frag Grenade / Tank Coax MG | `Right-Click` or `G` (`Space` in Tank) | `FRAG` button (morphs to hold `MG` in Tank) |
 | Enter / Exit Tank | `E` | `TANK` / `EXIT` button |
-| Switch Weapons | `1`–`5`, `Q`, or `Mouse Wheel` | Tap weapon slot on bottom bar |
+| Switch Weapons | `1`–`5`, `Q`, or `Mouse Wheel` | `SWAP` button (right thumb) or tap weapon slot on bottom bar |
 | Combat Dodge Roll | `Shift` or `Space` | `ROLL` button |
-| Pause / Mute | `P` or `Esc` / `M` | `PAUSE` / `SFX` buttons |
+| Pause / Mute & Aim Tuning | `P` or `Esc` / `M` | `PAUSE` (tune Aim Weight, Sticky Magnetism, Auto-Aim) / `SFX` |
 
 ## Development
 
