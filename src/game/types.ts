@@ -22,6 +22,8 @@ export type PickupKind =
 
 export type GamePhase = 'title' | 'playing' | 'paused' | 'gameover';
 
+export type ControlMode = 'straight' | 'free';
+
 export interface WeaponDef {
   id: WeaponId;
   key: string;
@@ -336,9 +338,10 @@ export interface HudSnapshot {
   breakdown: KillBreakdown;
   pickupToast: string;
   pickupToastTimer: number;
-  aimWeight?: AimWeightSetting;
-  aimAssist?: boolean;
+  controlMode: ControlMode;
+  aimWeight: AimWeightSetting;
+  aimAssist: boolean;
   nextWeaponId: WeaponId;
-  touchAimMode?: 'idle' | 'auto' | 'manual';
+  touchAimMode: 'idle' | 'auto' | 'manual';
 }
 

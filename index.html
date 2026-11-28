@@ -118,8 +118,10 @@
               type="button"
               aria-label="Fire Straight Forward"
             >
-              <span id="touch-fire-label" class="fire-btn-label">FIRE</span>
-              <small id="touch-fire-sub" class="fire-btn-sub">PISTOL</small>
+              <div id="fire-stick-knob" class="fire-stick-knob">
+                <span id="touch-fire-label" class="fire-btn-label">FIRE</span>
+                <small id="touch-fire-sub" class="fire-btn-sub">PISTOL</small>
+              </div>
             </button>
           </div>
         </div>
@@ -166,7 +168,14 @@
             <button id="btn-play" class="primary-btn" type="button">DEPLOY TO BATTLE</button>
             <div id="title-highscore" class="best-pill hidden">BEST: <strong id="title-highscore-val">0</strong></div>
           </div>
-          <div class="key-grid desktop-keys">
+          <div class="title-control-picker" role="group" aria-label="Control Mode">
+            <span class="picker-label">CONTROLS:</span>
+            <div class="mode-toggle-group">
+              <button id="btn-title-mode-straight" class="mode-toggle-btn active" type="button">STRAIGHT AIM</button>
+              <button id="btn-title-mode-free" class="mode-toggle-btn" type="button">FREE AIM (360°)</button>
+            </div>
+          </div>
+          <div id="title-desktop-keys" class="key-grid desktop-keys">
             <div><kbd>WASD</kbd> Move &amp; Align</div>
             <div><kbd>LMB</kbd> / <kbd>Space</kbd> Fire Straight</div>
             <div><kbd>RMB</kbd> / <kbd>G</kbd> Frag Grenade</div>
@@ -174,7 +183,7 @@
             <div><kbd>1-5</kbd> / <kbd>Scroll</kbd> Weapons</div>
             <div><kbd>Shift</kbd> Dodge Roll</div>
           </div>
-          <div class="touch-legend">
+          <div id="title-touch-legend" class="touch-legend">
             <span><strong>Left Stick</strong> Move &amp; Position</span>
             <span><strong>Fire</strong> Hold to Shoot Straight</span>
             <span><strong>Frag</strong> Lob Grenade</span>
@@ -187,6 +196,25 @@
         <div class="card small-card">
           <p class="eyebrow">BATTLEFIELD PAUSED</p>
           <h2 class="overlay-heading">HOLD THE LINE</h2>
+
+          <div class="pause-settings">
+            <span class="settings-title">CONTROL SETTINGS</span>
+            <div class="mode-toggle-group full-width" role="group" aria-label="Control Mode">
+              <button id="btn-pause-mode-straight" class="mode-toggle-btn active" type="button">STRAIGHT AIM</button>
+              <button id="btn-pause-mode-free" class="mode-toggle-btn" type="button">FREE AIM (360°)</button>
+            </div>
+            <p id="control-mode-desc" class="settings-desc">
+              Fire strictly straight forward. Use movement to line up shots; pure FIRE button on mobile.
+            </p>
+            <div id="free-aim-settings" class="settings-row hidden">
+              <button id="btn-toggle-weight" class="setting-btn" type="button" title="Cycle Aim Weight / Inertia">
+                AIM WEIGHT: BALANCED
+              </button>
+              <button id="btn-toggle-assist" class="setting-btn" type="button" title="Toggle Sticky Aim Assist">
+                MAGNETISM: ON
+              </button>
+            </div>
+          </div>
 
           <div class="pause-actions">
             <button id="btn-resume" class="primary-btn" type="button">RESUME BATTLE</button>

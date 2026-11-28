@@ -495,10 +495,8 @@ body.is-touch .touch-controls {
     inset 0 3px 6px rgba(255, 224, 178, 0.38),
     0 4px 0 rgba(14, 16, 11, 0.72);
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
   font-family: inherit;
   color: #fffaf0;
   pointer-events: auto;
@@ -507,6 +505,15 @@ body.is-touch .touch-controls {
   transition: transform 70ms ease, box-shadow 70ms ease, filter 80ms ease;
   user-select: none;
   -webkit-user-select: none;
+}
+
+.fire-stick-knob {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  pointer-events: none;
 }
 
 .touch-fire-btn.tank-fire-mode {
@@ -556,6 +563,64 @@ body.is-touch .touch-controls {
     inset 0 2px 4px rgba(0, 0, 0, 0.5),
     0 1px 0 rgba(14, 16, 11, 0.8),
     0 0 16px rgba(255, 214, 59, 0.6);
+}
+
+/* Free Aim (360°) Hybrid Right Fire Stick */
+body.control-mode-free .touch-fire-btn {
+  width: 112px;
+  height: 112px;
+  border: 2.5px solid rgba(245, 206, 66, 0.58);
+  background: rgba(24, 28, 20, 0.52);
+  box-shadow:
+    inset 0 0 18px rgba(0, 0, 0, 0.42),
+    0 4px 0 rgba(14, 16, 11, 0.55);
+  transition: border-color 90ms ease, box-shadow 90ms ease, background 90ms ease;
+}
+
+body.control-mode-free .touch-fire-btn:active,
+body.control-mode-free .touch-fire-btn.pressed {
+  transform: none;
+  filter: none;
+  border-color: #ffe047;
+  background: rgba(36, 42, 26, 0.68);
+  box-shadow:
+    inset 0 0 14px rgba(255, 224, 71, 0.24),
+    0 0 20px rgba(255, 214, 59, 0.55);
+}
+
+body.control-mode-free .touch-fire-btn.dragging {
+  border-color: #ff7738;
+  box-shadow:
+    inset 0 0 16px rgba(255, 110, 48, 0.3),
+    0 0 22px rgba(255, 96, 48, 0.65);
+}
+
+body.control-mode-free .fire-stick-knob {
+  width: 86px;
+  height: 86px;
+  border-radius: 999px;
+  border: 3px solid #161812;
+  background: radial-gradient(circle at 35% 28%, #ff8259 0%, #d93b26 62%, #991e14 100%);
+  box-shadow:
+    inset 0 3px 6px rgba(255, 224, 178, 0.38),
+    0 4px 0 rgba(14, 16, 11, 0.72);
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
+  transition: filter 80ms ease;
+}
+
+body.control-mode-free .touch-fire-btn.tank-fire-mode .fire-stick-knob {
+  background: radial-gradient(circle at 35% 28%, #ffe169 0%, #d98c1c 62%, #94560a 100%);
+  color: #19160e;
+}
+
+body.control-mode-free .touch-fire-btn.pressed .fire-stick-knob {
+  filter: brightness(1.1);
+}
+
+body.control-mode-free .frag-btn.aiming {
+  border-color: #c6ff4d;
+  box-shadow: 0 0 16px rgba(198, 255, 77, 0.72);
 }
 
 .touch-btn {
@@ -925,6 +990,71 @@ body.is-touch .slot-key {
   letter-spacing: 0.1em;
   color: #f5cb38;
   text-transform: uppercase;
+}
+
+.title-control-picker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.picker-label {
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  color: #f5cb38;
+}
+
+.mode-toggle-group {
+  display: inline-flex;
+  background: rgba(16, 19, 13, 0.85);
+  border: 2px solid #3c4631;
+  border-radius: 9px;
+  padding: 3px;
+  gap: 4px;
+}
+
+.mode-toggle-group.full-width {
+  display: flex;
+  width: 100%;
+}
+
+.mode-toggle-btn {
+  flex: 1;
+  background: transparent;
+  color: #c2c6b4;
+  border: 1.5px solid transparent;
+  border-radius: 6px;
+  padding: 7px 12px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: background 100ms ease, color 100ms ease, border-color 100ms ease;
+}
+
+.mode-toggle-btn:hover {
+  color: #fffaf0;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.mode-toggle-btn.active {
+  background: linear-gradient(180deg, #f5cb38 0%, #d49e1a 100%);
+  color: #161812;
+  border-color: #161812;
+  box-shadow: 0 2px 0 rgba(14, 16, 11, 0.65);
+}
+
+.settings-desc {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: #c9ccbe;
+  text-align: center;
 }
 
 .settings-row {
@@ -1313,9 +1443,15 @@ kbd {
     font-size: 8px;
   }
 
-  .touch-fire-btn {
+  .touch-fire-btn,
+  body.control-mode-free .touch-fire-btn {
     width: 96px;
     height: 96px;
+  }
+
+  body.control-mode-free .fire-stick-knob {
+    width: 74px;
+    height: 74px;
   }
 
   .fire-btn-label {
@@ -1384,7 +1520,11 @@ kbd {
   }
 
   .title-actions {
-    margin-bottom: 10px;
+    margin-bottom: 8px;
+  }
+
+  .title-control-picker {
+    margin-bottom: 8px;
   }
 
   .primary-btn,
@@ -1436,9 +1576,14 @@ kbd {
     width: 36px;
     height: 36px;
   }
-  .touch-fire-btn {
+  .touch-fire-btn,
+  body.control-mode-free .touch-fire-btn {
     width: 86px;
     height: 86px;
+  }
+  body.control-mode-free .fire-stick-knob {
+    width: 66px;
+    height: 66px;
   }
   .weapon-slot {
     min-width: 44px;

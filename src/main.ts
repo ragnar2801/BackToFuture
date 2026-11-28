@@ -1,7 +1,7 @@
 import './style.css';
 import { WEAPONS, WEAPON_ORDER } from './game/constants';
 import { GameEngine } from './game/engine';
-import type { HudSnapshot, WeaponId } from './game/types';
+import type { ControlMode, HudSnapshot, WeaponId } from './game/types';
 
 function mustGet<T extends HTMLElement>(id: string): T {
   const el = document.getElementById(id);
@@ -49,6 +49,7 @@ const touchMoveZone = mustGet<HTMLDivElement>('touch-move-zone');
 const moveStickBase = mustGet<HTMLDivElement>('move-stick-base');
 const moveStickKnob = mustGet<HTMLDivElement>('move-stick-knob');
 const touchBtnFire = mustGet<HTMLButtonElement>('touch-btn-fire');
+const fireStickKnob = mustGet<HTMLDivElement>('fire-stick-knob');
 const touchFireLabel = mustGet<HTMLSpanElement>('touch-fire-label');
 const touchFireSub = mustGet<HTMLElement>('touch-fire-sub');
 const touchBtnSwap = mustGet<HTMLButtonElement>('touch-btn-swap');
@@ -61,6 +62,17 @@ const touchFragCount = mustGet<HTMLElement>('touch-frag-count');
 
 const titleHighscore = mustGet<HTMLDivElement>('title-highscore');
 const titleHighscoreVal = mustGet<HTMLElement>('title-highscore-val');
+const titleDesktopKeys = mustGet<HTMLDivElement>('title-desktop-keys');
+const titleTouchLegend = mustGet<HTMLDivElement>('title-touch-legend');
+
+const btnTitleModeStraight = mustGet<HTMLButtonElement>('btn-title-mode-straight');
+const btnTitleModeFree = mustGet<HTMLButtonElement>('btn-title-mode-free');
+const btnPauseModeStraight = mustGet<HTMLButtonElement>('btn-pause-mode-straight');
+const btnPauseModeFree = mustGet<HTMLButtonElement>('btn-pause-mode-free');
+const controlModeDesc = mustGet<HTMLParagraphElement>('control-mode-desc');
+const freeAimSettings = mustGet<HTMLDivElement>('free-aim-settings');
+const btnToggleWeight = mustGet<HTMLButtonElement>('btn-toggle-weight');
+const btnToggleAssist = mustGet<HTMLButtonElement>('btn-toggle-assist');
 
 const gameoverReason = mustGet<HTMLParagraphElement>('gameover-reason');
 const goScore = mustGet<HTMLSpanElement>('go-score');
@@ -72,6 +84,7 @@ const goBreakdown = mustGet<HTMLDivElement>('go-breakdown');
 const weaponButtons = new Map<WeaponId, { el: HTMLButtonElement; ammoEl: HTMLSpanElement }>();
 let grenadeAmmoEl: HTMLSpanElement;
 let isInTank = false;
+let currentControlMode: ControlMode = 'straight';
 
 function detectAndEnableTouchUi(): void {
   const coarse =
@@ -379,6 +392,79 @@ function renderHud(h: HudSnapshot): void {
     pickupToast.classList.add('hidden');
   }
 
+  // Sync Control Mode UI (body class, legends, settings buttons)
+  const modeChanged = currentControlMode !== h.controlMode;
+  currentControlMode = h.controlMode;
+  const isFreeAim = h.controlMode === 'free';
+  document.body.classList.toggle('control-mode-free', isFreeAim);
+  document.body.classList.toggle('control-mode-straight', !isFreeAim);
+
+  btnTitleModeStraight.classList.toggle('active', !isFreeAim);
+  btnTitleModeFree.classList.toggle('active', isFreeAim);
+  btnPauseModeStraight.classList.toggle('active', !isFreeAim);
+  btnPauseModeFree.classList.toggle('active', isFreeAim);
+  freeAimSettings.classList.toggle('hidden', !isFreeAim);
+
+  if (isFreeAim) {
+    controlModeDesc.textContent =
+      'Desktop: 1:1 mouse aim. Mobile: Hold FIRE for Smart Auto-Lock or drag to aim; drag FRAG for blast ring.';
+    const weightLabels = {
+      responsive: 'SNAPPY',
+      balanced: 'BALANCED',
+      heavy: 'HEAVY',
+    };
+    btnToggleWeight.textContent = `AIM WEIGHT: ${weightLabels[h.aimWeight] || 'BALANCED'}`;
+    btnToggleAssist.textContent = `MAGNETISM: ${h.aimAssist ? 'ON' : 'OFF'}`;
+  } else {
+    controlModeDesc.textContent =
+      'Fire strictly straight forward. Use movement to line up shots; pure FIRE button on mobile.';
+  }
+
+  if (modeChanged || !controlsStrip.dataset.mode || controlsStrip.dataset.mode !== h.controlMode) {
+    controlsStrip.dataset.mode = h.controlMode;
+    if (isFreeAim) {
+      controlsStrip.innerHTML =
+        '<span><strong>WASD</strong> Move &amp; Kite</span>' +
+        '<span><strong>Mouse</strong> 1:1 Aim &amp; Shoot</span>' +
+        '<span><strong>RMB / G</strong> Aim &amp; Lob Grenade</span>' +
+        '<span><strong>Shift / Space</strong> Dodge Roll</span>' +
+        '<span><strong>E</strong> Tank</span>';
+      titleDesktopKeys.innerHTML =
+        '<div><kbd>WASD</kbd> Move &amp; Kite</div>' +
+        '<div><kbd>LMB</kbd> 1:1 Aim &amp; Fire</div>' +
+        '<div><kbd>RMB</kbd> / <kbd>G</kbd> Aim Grenade</div>' +
+        '<div><kbd>E</kbd> Enter / Exit Tank</div>' +
+        '<div><kbd>1-5</kbd> / <kbd>Scroll</kbd> Weapons</div>' +
+        '<div><kbd>Shift</kbd> / <kbd>Space</kbd> Dodge Roll</div>';
+      titleTouchLegend.innerHTML =
+        '<span><strong>Left Stick</strong> Move &amp; Kite</span>' +
+        '<span><strong>Fire</strong> Hold Auto-Aim • Drag Aim</span>' +
+        '<span><strong>Frag</strong> Tap Auto • Drag Ring</span>';
+      touchBtnFire.setAttribute('aria-label', 'Hold to Auto-Lock Fire, Drag to Aim');
+      touchBtnFrag.setAttribute('title', 'Tap: Auto-Lob • Drag: Aim Ring');
+    } else {
+      controlsStrip.innerHTML =
+        '<span><strong>WASD</strong> Move &amp; Align</span>' +
+        '<span><strong>LMB / Space</strong> Fire Straight</span>' +
+        '<span><strong>RMB / G</strong> Frag Grenade</span>' +
+        '<span><strong>Shift</strong> Dodge Roll</span>' +
+        '<span><strong>E</strong> Tank</span>';
+      titleDesktopKeys.innerHTML =
+        '<div><kbd>WASD</kbd> Move &amp; Align</div>' +
+        '<div><kbd>LMB</kbd> / <kbd>Space</kbd> Fire Straight</div>' +
+        '<div><kbd>RMB</kbd> / <kbd>G</kbd> Frag Grenade</div>' +
+        '<div><kbd>E</kbd> Enter / Exit Tank</div>' +
+        '<div><kbd>1-5</kbd> / <kbd>Scroll</kbd> Weapons</div>' +
+        '<div><kbd>Shift</kbd> Dodge Roll</div>';
+      titleTouchLegend.innerHTML =
+        '<span><strong>Left Stick</strong> Move &amp; Position</span>' +
+        '<span><strong>Fire</strong> Hold to Shoot Straight</span>' +
+        '<span><strong>Frag</strong> Lob Grenade</span>';
+      touchBtnFire.setAttribute('aria-label', 'Fire Straight Forward');
+      touchBtnFrag.setAttribute('title', 'Lob Frag Grenade');
+    }
+  }
+
   // Weapon Bar vs Tank Controls Bar
   weaponBar.classList.toggle('hidden', h.inTank);
   tankBar.classList.toggle('hidden', !h.inTank);
@@ -398,12 +484,25 @@ function renderHud(h: HudSnapshot): void {
     touchFragLabel.textContent = 'MG';
     touchFragCount.textContent = 'HOLD';
     touchFireLabel.textContent = 'CANNON';
-    touchFireSub.textContent = '75MM';
+    touchFireSub.textContent = isFreeAim
+      ? h.touchAimMode === 'manual'
+        ? 'AIM • 75MM'
+        : h.touchAimMode === 'auto'
+          ? 'AUTO • 75MM'
+          : '75MM'
+      : '75MM';
   } else {
     touchFragLabel.textContent = 'FRAG';
     touchFragCount.textContent = String(h.grenades);
     touchFireLabel.textContent = 'FIRE';
-    touchFireSub.textContent = WEAPONS[h.activeWeapon].shortName;
+    const wepShort = WEAPONS[h.activeWeapon].shortName;
+    touchFireSub.textContent = isFreeAim
+      ? h.touchAimMode === 'manual'
+        ? `AIM • ${wepShort}`
+        : h.touchAimMode === 'auto'
+          ? `AUTO • ${wepShort}`
+          : wepShort
+      : wepShort;
   }
 
   for (const id of WEAPON_ORDER) {
@@ -468,15 +567,52 @@ const moveStick = bindVirtualStick(
   }
 );
 
-// Wire Right FIRE Button (Dedicated press/hold to fire forward)
+// Wire Right FIRE Button:
+// - Straight Aim mode: pure press/hold FIRE button (no dragging / no steering)
+// - Free Aim mode: hybrid Hold-to-Auto-Lock + Drag-for-Manual-Aim stick
 let fireTouchId: number | null = null;
 let fireMousePointerId: number | null = null;
+let fireAnchorX = 0;
+let fireAnchorY = 0;
+let fireDragging = false;
 
 const stopTouchFire = () => {
   fireTouchId = null;
   fireMousePointerId = null;
-  touchBtnFire.classList.remove('pressed');
-  engine.setTouchFire(false);
+  fireDragging = false;
+  touchBtnFire.classList.remove('pressed', 'dragging');
+  fireStickKnob.style.transform = 'translate3d(0px, 0px, 0px)';
+  engine.setTouchFireControl(false, false, 0, 0);
+};
+
+const updateFireStickFromClient = (clientX: number, clientY: number) => {
+  if (currentControlMode !== 'free') {
+    engine.setTouchFire(true);
+    return;
+  }
+
+  const dx = clientX - fireAnchorX;
+  const dy = clientY - fireAnchorY;
+  const dist = Math.hypot(dx, dy);
+  const maxTravel = Math.max(24, (touchBtnFire.offsetWidth || 112) * 0.34);
+
+  if (!fireDragging && dist >= 16) {
+    fireDragging = true;
+  }
+
+  if (fireDragging) {
+    const clamped = Math.min(maxTravel, dist);
+    const ang = Math.atan2(dy, dx);
+    const kx = Math.cos(ang) * clamped;
+    const ky = Math.sin(ang) * clamped;
+    fireStickKnob.style.transform = `translate3d(${kx.toFixed(1)}px, ${ky.toFixed(1)}px, 0px)`;
+    touchBtnFire.classList.add('dragging');
+    engine.setTouchFireControl(true, true, Math.cos(ang), Math.sin(ang));
+  } else {
+    fireStickKnob.style.transform = 'translate3d(0px, 0px, 0px)';
+    touchBtnFire.classList.remove('dragging');
+    engine.setTouchFireControl(true, false, 0, 0);
+  }
 };
 
 touchBtnFire.addEventListener(
@@ -489,8 +625,27 @@ touchBtnFire.addEventListener(
     const t = e.changedTouches[0];
     if (!t) return;
     fireTouchId = t.identifier;
+    fireAnchorX = t.clientX;
+    fireAnchorY = t.clientY;
+    fireDragging = false;
     touchBtnFire.classList.add('pressed');
-    engine.setTouchFire(true);
+    updateFireStickFromClient(t.clientX, t.clientY);
+  },
+  { passive: false }
+);
+
+window.addEventListener(
+  'touchmove',
+  (e) => {
+    if (fireTouchId === null || currentControlMode !== 'free') return;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const t = e.changedTouches[i];
+      if (t.identifier === fireTouchId) {
+        e.preventDefault();
+        updateFireStickFromClient(t.clientX, t.clientY);
+        break;
+      }
+    }
   },
   { passive: false }
 );
@@ -512,8 +667,22 @@ touchBtnFire.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   e.stopPropagation();
   fireMousePointerId = e.pointerId;
+  fireAnchorX = e.clientX;
+  fireAnchorY = e.clientY;
+  fireDragging = false;
   touchBtnFire.classList.add('pressed');
-  engine.setTouchFire(true);
+  if (currentControlMode === 'free') {
+    try {
+      touchBtnFire.setPointerCapture(e.pointerId);
+    } catch {}
+  }
+  updateFireStickFromClient(e.clientX, e.clientY);
+});
+
+touchBtnFire.addEventListener('pointermove', (e) => {
+  if (fireMousePointerId === null || e.pointerId !== fireMousePointerId || currentControlMode !== 'free') return;
+  e.preventDefault();
+  updateFireStickFromClient(e.clientX, e.clientY);
 });
 
 const endFireMouse = (e: PointerEvent) => {
@@ -523,25 +692,65 @@ const endFireMouse = (e: PointerEvent) => {
 window.addEventListener('pointerup', endFireMouse);
 window.addEventListener('pointercancel', endFireMouse);
 
-// Wire Right FRAG / Tank Coax MG Button
+// Wire Right FRAG / Tank Coax MG Button:
+// - Straight Aim mode: instant tap to lob straight forward (or hold MG in Tank)
+// - Free Aim mode: tap for Smart Lob, or drag to place blast ring (or hold MG in Tank)
 let fragTouchId: number | null = null;
 let fragMousePointerId: number | null = null;
+let fragIsCoax = false;
+let fragAnchorX = 0;
+let fragAnchorY = 0;
+let fragDragging = false;
+let fragNx = 0;
+let fragNy = 0;
 
-const startFrag = () => {
-  touchBtnFrag.classList.add('pressed');
-  if (isInTank) {
-    engine.setTouchCoax(true);
-  } else {
-    engine.triggerFrag();
+const resetFragUi = (cancelOnly: boolean) => {
+  const wasCoax = fragIsCoax;
+  const wasDragged = fragDragging;
+  const nx = fragNx;
+  const ny = fragNy;
+  const modeAtEnd = currentControlMode;
+
+  fragTouchId = null;
+  fragMousePointerId = null;
+  fragIsCoax = false;
+  fragDragging = false;
+  fragNx = 0;
+  fragNy = 0;
+  touchBtnFrag.classList.remove('pressed', 'aiming');
+  touchBtnFrag.style.transform = '';
+
+  if (wasCoax) {
+    engine.setTouchCoax(false);
+  } else if (modeAtEnd === 'free') {
+    if (cancelOnly) {
+      engine.setTouchFragAim(false, false, 0, 0);
+    } else {
+      engine.releaseTouchFrag(wasDragged, nx, ny);
+    }
   }
 };
 
-const stopFrag = () => {
-  fragTouchId = null;
-  fragMousePointerId = null;
-  touchBtnFrag.classList.remove('pressed');
-  if (isInTank) {
-    engine.setTouchCoax(false);
+const updateFragStickFromClient = (clientX: number, clientY: number) => {
+  if (currentControlMode !== 'free' || fragIsCoax) return;
+  const dx = clientX - fragAnchorX;
+  const dy = clientY - fragAnchorY;
+  const dist = Math.hypot(dx, dy);
+  const maxThrowDrag = 66;
+
+  if (!fragDragging && dist >= 13) {
+    fragDragging = true;
+  }
+
+  if (fragDragging) {
+    const ratio = Math.min(1, Math.max(0.08, (dist - 10) / (maxThrowDrag - 10)));
+    const ang = Math.atan2(dy, dx);
+    fragNx = Math.cos(ang) * ratio;
+    fragNy = Math.sin(ang) * ratio;
+    const knobShift = Math.min(18, dist * 0.32);
+    touchBtnFrag.style.transform = `translate3d(${(Math.cos(ang) * knobShift).toFixed(1)}px, ${(Math.sin(ang) * knobShift).toFixed(1)}px, 0)`;
+    touchBtnFrag.classList.add('aiming');
+    engine.setTouchFragAim(true, true, fragNx, fragNy);
   }
 };
 
@@ -555,44 +764,121 @@ touchBtnFrag.addEventListener(
     const t = e.changedTouches[0];
     if (!t) return;
     fragTouchId = t.identifier;
-    startFrag();
+    fragAnchorX = t.clientX;
+    fragAnchorY = t.clientY;
+    fragDragging = false;
+    fragNx = 0;
+    fragNy = 0;
+    touchBtnFrag.classList.add('pressed');
+    if (isInTank) {
+      fragIsCoax = true;
+      engine.setTouchCoax(true);
+    } else if (currentControlMode === 'straight') {
+      fragIsCoax = false;
+      engine.triggerFrag();
+    } else {
+      fragIsCoax = false;
+      engine.setTouchFragAim(true, false, 0, 0);
+    }
   },
   { passive: false }
 );
 
-const endFragTouch = (e: TouchEvent) => {
-  if (fragTouchId === null) return;
-  for (let i = 0; i < e.changedTouches.length; i++) {
-    if (e.changedTouches[i].identifier === fragTouchId) {
-      stopFrag();
-      break;
+window.addEventListener(
+  'touchmove',
+  (e) => {
+    if (fragTouchId === null || fragIsCoax || currentControlMode !== 'free') return;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const t = e.changedTouches[i];
+      if (t.identifier === fragTouchId) {
+        e.preventDefault();
+        updateFragStickFromClient(t.clientX, t.clientY);
+        break;
+      }
     }
-  }
-};
-window.addEventListener('touchend', endFragTouch, { passive: true });
-window.addEventListener('touchcancel', endFragTouch, { passive: true });
+  },
+  { passive: false }
+);
+
+window.addEventListener(
+  'touchend',
+  (e) => {
+    if (fragTouchId === null) return;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === fragTouchId) {
+        resetFragUi(false);
+        break;
+      }
+    }
+  },
+  { passive: true }
+);
+
+window.addEventListener(
+  'touchcancel',
+  (e) => {
+    if (fragTouchId === null) return;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === fragTouchId) {
+        resetFragUi(true);
+        break;
+      }
+    }
+  },
+  { passive: true }
+);
 
 touchBtnFrag.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'touch' || fragMousePointerId !== null) return;
   e.preventDefault();
   e.stopPropagation();
   fragMousePointerId = e.pointerId;
-  startFrag();
+  fragAnchorX = e.clientX;
+  fragAnchorY = e.clientY;
+  fragDragging = false;
+  fragNx = 0;
+  fragNy = 0;
+  touchBtnFrag.classList.add('pressed');
+  if (currentControlMode === 'free') {
+    try {
+      touchBtnFrag.setPointerCapture(e.pointerId);
+    } catch {}
+  }
+  if (isInTank) {
+    fragIsCoax = true;
+    engine.setTouchCoax(true);
+  } else if (currentControlMode === 'straight') {
+    fragIsCoax = false;
+    engine.triggerFrag();
+  } else {
+    fragIsCoax = false;
+    engine.setTouchFragAim(true, false, 0, 0);
+  }
 });
 
-const endFragMouse = (e: PointerEvent) => {
+touchBtnFrag.addEventListener('pointermove', (e) => {
+  if (fragMousePointerId === null || e.pointerId !== fragMousePointerId || fragIsCoax || currentControlMode !== 'free') {
+    return;
+  }
+  e.preventDefault();
+  updateFragStickFromClient(e.clientX, e.clientY);
+});
+
+window.addEventListener('pointerup', (e) => {
   if (fragMousePointerId === null || e.pointerId !== fragMousePointerId) return;
-  stopFrag();
-};
-window.addEventListener('pointerup', endFragMouse);
-window.addEventListener('pointercancel', endFragMouse);
+  resetFragUi(false);
+});
+window.addEventListener('pointercancel', (e) => {
+  if (fragMousePointerId === null || e.pointerId !== fragMousePointerId) return;
+  resetFragUi(true);
+});
 
 let lastIsLandscape = window.innerWidth >= window.innerHeight;
 
 const resetAllTouchUi = () => {
   moveStick.reset();
   stopTouchFire();
-  stopFrag();
+  resetFragUi(true);
   engine.resetTouchInputs();
 };
 
@@ -638,6 +924,18 @@ function bindInstantTap(el: HTMLElement, onTap: () => void): void {
 bindInstantTap(touchBtnSwap, () => engine.cycleWeapon(1));
 bindInstantTap(touchBtnTank, () => engine.triggerTankToggle());
 bindInstantTap(touchBtnRoll, () => engine.triggerDodge());
+
+const applyControlMode = (mode: ControlMode) => {
+  resetAllTouchUi();
+  engine.setControlMode(mode);
+};
+
+btnTitleModeStraight.addEventListener('click', () => applyControlMode('straight'));
+btnTitleModeFree.addEventListener('click', () => applyControlMode('free'));
+btnPauseModeStraight.addEventListener('click', () => applyControlMode('straight'));
+btnPauseModeFree.addEventListener('click', () => applyControlMode('free'));
+btnToggleWeight.addEventListener('click', () => engine.cycleAimWeight());
+btnToggleAssist.addEventListener('click', () => engine.toggleAimAssist());
 
 mustGet<HTMLButtonElement>('btn-play').addEventListener('click', () => {
   resetAllTouchUi();
