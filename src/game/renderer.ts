@@ -58,14 +58,6 @@ export interface RenderState {
   clouds: CloudProp[];
   showCrosshair: boolean;
   recoilBloom: number;
-  showAimLaser: boolean;
-  aimLaserOriginX: number;
-  aimLaserOriginY: number;
-  aimLaserAngle: number;
-  aimLaserRange: number;
-  aimLaserSpread: number;
-  aimLaserColor: string;
-  aimLaserFired: boolean;
   lockedTargetId: number | null;
   isAutoLocked: boolean;
   lockedTargetPos: { x: number; y: number; isBoss: boolean } | null;
@@ -2761,94 +2753,12 @@ export class GameRenderer {
   }
 
   private drawAimGuide(ctx: CanvasRenderingContext2D, state: RenderState): void {
-    const {
-      aimLaserOriginX,
-      aimLaserOriginY,
-      aimLaserAngle,
-      aimLaserRange,
-      aimLaserSpread,
-      aimLaserColor,
-      aimLaserFired,
-      lockedTargetPos,
-      isAutoLocked,
-      time,
-    } = state;
+    const { lockedTargetPos, isAutoLocked, time } = state;
 
-    // 1. Highlight locked enemy / barracks target (works on both desktop cursor snap & mobile Smart Lock)
+    // Highlight locked enemy / barracks target (works on both desktop cursor snap & mobile Smart Lock)
     if (lockedTargetPos && state.player.alive) {
       this.drawTargetLock(ctx, lockedTargetPos.x, lockedTargetPos.y, lockedTargetPos.isBoss, isAutoLocked, time);
     }
-
-    if (!state.showAimLaser) return;
-
-    ctx.save();
-
-    // Slightly softer guide when passively walking on mobile vs crisp active beam when firing/dragging
-    if (!aimLaserFired && !isAutoLocked) {
-      ctx.globalAlpha = 0.62;
-    }
-
-    // 2. Tactical laser beam / aim guide
-    const endX = aimLaserOriginX + Math.cos(aimLaserAngle) * aimLaserRange;
-    const endY = aimLaserOriginY + Math.sin(aimLaserAngle) * aimLaserRange;
-
-    // Shotgun spread cone
-    if (aimLaserSpread > 0.08) {
-      const leftAngle = aimLaserAngle - aimLaserSpread * 0.5;
-      const rightAngle = aimLaserAngle + aimLaserSpread * 0.5;
-      const lx = aimLaserOriginX + Math.cos(leftAngle) * aimLaserRange;
-      const ly = aimLaserOriginY + Math.sin(leftAngle) * aimLaserRange;
-      const rx = aimLaserOriginX + Math.cos(rightAngle) * aimLaserRange;
-      const ry = aimLaserOriginY + Math.sin(rightAngle) * aimLaserRange;
-
-      // Soft wedge fill
-      ctx.beginPath();
-      ctx.moveTo(aimLaserOriginX, aimLaserOriginY);
-      ctx.lineTo(lx, ly);
-      ctx.arc(aimLaserOriginX, aimLaserOriginY, aimLaserRange, leftAngle, rightAngle);
-      ctx.closePath();
-      ctx.fillStyle = aimLaserFired ? 'rgba(255, 120, 50, 0.12)' : 'rgba(245, 206, 66, 0.07)';
-      ctx.fill();
-
-      // Flanking cone lines
-      ctx.strokeStyle = aimLaserFired ? 'rgba(255, 140, 60, 0.5)' : 'rgba(245, 206, 66, 0.35)';
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([4, 6]);
-      ctx.lineDashOffset = -time * 24;
-      ctx.beginPath();
-      ctx.moveTo(aimLaserOriginX, aimLaserOriginY);
-      ctx.lineTo(lx, ly);
-      ctx.moveTo(aimLaserOriginX, aimLaserOriginY);
-      ctx.lineTo(rx, ry);
-      ctx.stroke();
-    }
-
-    // Central laser / bullet trajectory line
-    ctx.setLineDash([8, 6]);
-    ctx.lineDashOffset = -time * 36;
-    ctx.lineWidth = aimLaserFired ? 2.5 : 1.8;
-    ctx.strokeStyle = aimLaserColor;
-    ctx.beginPath();
-    ctx.moveTo(aimLaserOriginX, aimLaserOriginY);
-    ctx.lineTo(endX, endY);
-    ctx.stroke();
-
-    // Soft laser glow underlay
-    ctx.lineWidth = 5;
-    ctx.strokeStyle = aimLaserFired ? 'rgba(255, 70, 40, 0.28)' : 'rgba(255, 225, 80, 0.18)';
-    ctx.setLineDash([]);
-    ctx.beginPath();
-    ctx.moveTo(aimLaserOriginX, aimLaserOriginY);
-    ctx.lineTo(endX, endY);
-    ctx.stroke();
-
-    // Tip pip
-    ctx.fillStyle = aimLaserColor;
-    ctx.beginPath();
-    ctx.arc(endX, endY, aimLaserFired ? 3.5 : 2.5, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.restore();
   }
 
   private drawTargetLock(

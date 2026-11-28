@@ -3386,10 +3386,6 @@ export class GameEngine {
 
     const activeTank =
       this.player.inTankId !== null ? this.tanks.find((t) => t.id === this.player.inTankId) ?? null : null;
-    const originBaseX = activeTank ? activeTank.x + activeTank.facing * -4 : this.player.x;
-    const originY = activeTank ? this.player.y - 44 : this.player.y - 28;
-    const activeWep = WEAPONS[this.player.activeWeapon];
-    const maxLaserRange = activeTank ? 620 : Math.min(500, activeWep.range * 0.78);
 
     const showGrenadePreview =
       this.phase === 'playing' &&
@@ -3398,10 +3394,6 @@ export class GameEngine {
       this.grenadeAiming &&
       this.player.grenades > 0;
     const grenadeTarget = showGrenadePreview ? this.getGrenadePreviewTarget() : null;
-    const aimAngle = this.player.aimAngle;
-    const muzzleDist = activeTank ? 58 : activeWep.muzzleOffset;
-    const muzzleX = originBaseX + Math.cos(aimAngle) * muzzleDist;
-    const muzzleY = originY + Math.sin(aimAngle) * muzzleDist;
 
     const touchDirectActive =
       this.phase === 'playing' &&
@@ -3410,23 +3402,6 @@ export class GameEngine {
       this.controlMode === 'touch_aim' &&
       this.touchPointActive &&
       !showGrenadePreview;
-
-    let laserRange = maxLaserRange;
-    if (touchDirectActive) {
-      const worldTouchX = this.cameraX + this.touchPointScreenX;
-      const worldTouchY = this.touchPointScreenY;
-      const distFromMuzzle = Math.hypot(worldTouchX - muzzleX, worldTouchY - muzzleY);
-      const weaponCap = activeTank ? 860 : activeWep.range;
-      laserRange = Math.max(40, Math.min(weaponCap, distFromMuzzle));
-    }
-
-    const showAimLaser =
-      this.phase === 'playing' &&
-      this.player.alive &&
-      !showGrenadePreview &&
-      (this.controlMode === 'touch_aim'
-        ? touchDirectActive || this.mouseDownLeft || (activeTank !== null && this.touchCoax)
-        : this.isTouchInput || this.mouseDownLeft);
 
     const state: RenderState = {
       time: this.time,
@@ -3458,14 +3433,6 @@ export class GameEngine {
       clouds: this.clouds,
       showCrosshair: this.phase === 'playing' && !this.isTouchInput,
       recoilBloom: this.recoilBloom,
-      showAimLaser,
-      aimLaserOriginX: muzzleX,
-      aimLaserOriginY: muzzleY,
-      aimLaserAngle: aimAngle,
-      aimLaserRange: laserRange,
-      aimLaserSpread: activeTank ? 0 : activeWep.spread,
-      aimLaserColor: activeTank ? '#ffdf59' : activeWep.tracerColor,
-      aimLaserFired: touchDirectActive || this.touchFiring || this.touchCoax || this.mouseDownLeft,
       lockedTargetId: this.lockedTargetId,
       isAutoLocked: this.phase === 'playing' && this.isAutoLocked,
       lockedTargetPos: this.phase === 'playing' ? this.lockedTargetPos : null,

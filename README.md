@@ -18,7 +18,7 @@ A 2.5D hand-illustrated cartoon battlefield action shooter where a modern soldie
   - **Parachute Supply Crates & Field Medkits** — Random weapons, ammo, tank airdrops, and camp/hero repairs drop dynamically onto the battlefield.
 - **Endless Escalating Difficulty & Scoring**: Every kill earns points amplified by combo streaks, multi-kill callouts, tank crushes, and frontline push bonuses. High scores persist locally.
 - **Desktop & Mobile Ready (2 Touch Aim Modes in Settings)**: Crisp `1:1` mouse aim on desktop, plus switchable mobile touch modes on the Title screen or Pause menu: **Touch to Shoot** (touch & hold anywhere on the battlefield to aim & auto-fire directly at your finger with a fingertip reticle and smart enemy snap) and **Twin-Stick** (hybrid corner `FIRE` stick — hold for Smart Auto-Lock or drag for 360° manual aim), both with Aim Weight & Magnetism tuning.
-- **Zero-Dependency Procedural Audio & Canvas Art**: Crisp 2.5D cartoon vector rendering, tactical laser aim guide, and synthesized Web Audio API sound effects.
+- **Zero-Dependency Procedural Audio & Canvas Art**: Crisp 2.5D cartoon vector rendering, tactical aim reticle, and synthesized Web Audio API sound effects.
 
 ## Controls
 
