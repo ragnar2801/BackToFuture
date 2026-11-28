@@ -419,6 +419,11 @@ body.is-touch .touch-controls {
   padding-left: max(18px, calc(env(safe-area-inset-left) + 14px));
 }
 
+body.control-mode-touch-aim .move-zone {
+  width: 34%;
+  height: 56%;
+}
+
 .touch-right-zone {
   position: absolute;
   bottom: max(18px, calc(env(safe-area-inset-bottom) + 12px));
@@ -483,17 +488,21 @@ body.is-touch .touch-controls {
   will-change: transform;
 }
 
+body.control-mode-touch-aim .touch-fire-btn {
+  display: none;
+}
+
 .touch-fire-btn {
   position: relative;
-  width: 104px;
-  height: 104px;
+  width: 112px;
+  height: 112px;
   padding: 0;
   border-radius: 999px;
-  border: 3.5px solid #161812;
-  background: radial-gradient(circle at 35% 28%, #ff8259 0%, #d93b26 62%, #991e14 100%);
+  border: 2.5px solid rgba(245, 206, 66, 0.58);
+  background: rgba(24, 28, 20, 0.52);
   box-shadow:
-    inset 0 3px 6px rgba(255, 224, 178, 0.38),
-    0 4px 0 rgba(14, 16, 11, 0.72);
+    inset 0 0 18px rgba(0, 0, 0, 0.42),
+    0 4px 0 rgba(14, 16, 11, 0.55);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -502,27 +511,38 @@ body.is-touch .touch-controls {
   pointer-events: auto;
   touch-action: none;
   cursor: pointer;
-  transition: transform 70ms ease, box-shadow 70ms ease, filter 80ms ease;
+  transition: border-color 90ms ease, box-shadow 90ms ease, background 90ms ease;
   user-select: none;
   -webkit-user-select: none;
 }
 
 .fire-stick-knob {
+  width: 86px;
+  height: 86px;
+  border-radius: 999px;
+  border: 3px solid #161812;
+  background: radial-gradient(circle at 35% 28%, #ff8259 0%, #d93b26 62%, #991e14 100%);
+  box-shadow:
+    inset 0 3px 6px rgba(255, 224, 178, 0.38),
+    0 4px 0 rgba(14, 16, 11, 0.72);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 2px;
   pointer-events: none;
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
+  transition: filter 80ms ease;
 }
 
-.touch-fire-btn.tank-fire-mode {
+.touch-fire-btn.tank-fire-mode .fire-stick-knob {
   background: radial-gradient(circle at 35% 28%, #ffe169 0%, #d98c1c 62%, #94560a 100%);
   color: #19160e;
 }
 
 .fire-btn-label {
-  font-size: 20px;
+  font-size: 19px;
   font-weight: 900;
   letter-spacing: 0.07em;
   line-height: 1;
@@ -531,12 +551,12 @@ body.is-touch .touch-controls {
 }
 
 .touch-fire-btn.tank-fire-mode .fire-btn-label {
-  font-size: 16px;
+  font-size: 15px;
   text-shadow: none;
 }
 
 .fire-btn-sub {
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 900;
   letter-spacing: 0.06em;
   color: #ffe88c;
@@ -547,40 +567,7 @@ body.is-touch .touch-controls {
   color: #2b220d;
 }
 
-.touch-fire-btn:active,
 .touch-fire-btn.pressed {
-  transform: translateY(3px) scale(0.97);
-  box-shadow:
-    inset 0 2px 4px rgba(0, 0, 0, 0.5),
-    0 1px 0 rgba(14, 16, 11, 0.8),
-    0 0 16px rgba(255, 96, 48, 0.6);
-  filter: brightness(1.12);
-}
-
-.touch-fire-btn.tank-fire-mode:active,
-.touch-fire-btn.tank-fire-mode.pressed {
-  box-shadow:
-    inset 0 2px 4px rgba(0, 0, 0, 0.5),
-    0 1px 0 rgba(14, 16, 11, 0.8),
-    0 0 16px rgba(255, 214, 59, 0.6);
-}
-
-/* Free Aim (360°) Hybrid Right Fire Stick */
-body.control-mode-free .touch-fire-btn {
-  width: 112px;
-  height: 112px;
-  border: 2.5px solid rgba(245, 206, 66, 0.58);
-  background: rgba(24, 28, 20, 0.52);
-  box-shadow:
-    inset 0 0 18px rgba(0, 0, 0, 0.42),
-    0 4px 0 rgba(14, 16, 11, 0.55);
-  transition: border-color 90ms ease, box-shadow 90ms ease, background 90ms ease;
-}
-
-body.control-mode-free .touch-fire-btn:active,
-body.control-mode-free .touch-fire-btn.pressed {
-  transform: none;
-  filter: none;
   border-color: #ffe047;
   background: rgba(36, 42, 26, 0.68);
   box-shadow:
@@ -588,37 +575,18 @@ body.control-mode-free .touch-fire-btn.pressed {
     0 0 20px rgba(255, 214, 59, 0.55);
 }
 
-body.control-mode-free .touch-fire-btn.dragging {
+.touch-fire-btn.dragging {
   border-color: #ff7738;
   box-shadow:
     inset 0 0 16px rgba(255, 110, 48, 0.3),
     0 0 22px rgba(255, 96, 48, 0.65);
 }
 
-body.control-mode-free .fire-stick-knob {
-  width: 86px;
-  height: 86px;
-  border-radius: 999px;
-  border: 3px solid #161812;
-  background: radial-gradient(circle at 35% 28%, #ff8259 0%, #d93b26 62%, #991e14 100%);
-  box-shadow:
-    inset 0 3px 6px rgba(255, 224, 178, 0.38),
-    0 4px 0 rgba(14, 16, 11, 0.72);
-  transform: translate3d(0, 0, 0);
-  will-change: transform;
-  transition: filter 80ms ease;
-}
-
-body.control-mode-free .touch-fire-btn.tank-fire-mode .fire-stick-knob {
-  background: radial-gradient(circle at 35% 28%, #ffe169 0%, #d98c1c 62%, #94560a 100%);
-  color: #19160e;
-}
-
-body.control-mode-free .touch-fire-btn.pressed .fire-stick-knob {
+.touch-fire-btn.pressed .fire-stick-knob {
   filter: brightness(1.1);
 }
 
-body.control-mode-free .frag-btn.aiming {
+.frag-btn.aiming {
   border-color: #c6ff4d;
   box-shadow: 0 0 16px rgba(198, 255, 77, 0.72);
 }
@@ -1443,13 +1411,12 @@ kbd {
     font-size: 8px;
   }
 
-  .touch-fire-btn,
-  body.control-mode-free .touch-fire-btn {
+  .touch-fire-btn {
     width: 96px;
     height: 96px;
   }
 
-  body.control-mode-free .fire-stick-knob {
+  .fire-stick-knob {
     width: 74px;
     height: 74px;
   }
@@ -1576,12 +1543,11 @@ kbd {
     width: 36px;
     height: 36px;
   }
-  .touch-fire-btn,
-  body.control-mode-free .touch-fire-btn {
+  .touch-fire-btn {
     width: 86px;
     height: 86px;
   }
-  body.control-mode-free .fire-stick-knob {
+  .fire-stick-knob {
     width: 66px;
     height: 66px;
   }

@@ -112,6 +112,10 @@ export class GameEngine {
   private touchAimDragging = false;
   private touchAimX = 1;
   private touchAimY = 0;
+  private touchPointActive = false;
+  private touchTapQueued = false;
+  private touchPointScreenX = 860;
+  private touchPointScreenY = 260;
   private touchCoax = false;
   private combatStrafeTimer = 0;
   private grenadeAiming = false;
@@ -121,7 +125,7 @@ export class GameEngine {
   private lockedTargetId: number | null = null;
   private lockedTargetPos: { x: number; y: number; isBoss: boolean } | null = null;
   private isAutoLocked = false;
-  private controlMode: ControlMode = 'straight';
+  private controlMode: ControlMode = 'touch_aim';
   private aimWeightSetting: AimWeightSetting = 'balanced';
   private aimAssistEnabled = true;
   private resizeTimers: number[] = [];
@@ -189,9 +193,11 @@ export class GameEngine {
       const saved = window.localStorage.getItem(HIGH_SCORE_KEY);
       if (saved) this.highScore = Math.max(0, parseInt(saved, 10) || 0);
 
-      const savedControlMode = window.localStorage.getItem('bttf_control_mode') as ControlMode | null;
-      if (savedControlMode === 'straight' || savedControlMode === 'free') {
+      const savedControlMode = window.localStorage.getItem('bttf_control_mode');
+      if (savedControlMode === 'touch_aim' || savedControlMode === 'twin_stick') {
         this.controlMode = savedControlMode;
+      } else if (savedControlMode === 'free') {
+        this.controlMode = 'twin_stick';
       }
       const savedWeight = window.localStorage.getItem('bttf_aim_weight') as AimWeightSetting | null;
       if (savedWeight && ['responsive', 'balanced', 'heavy'].includes(savedWeight)) {
@@ -290,21 +296,28 @@ export class GameEngine {
       window.localStorage.setItem('bttf_control_mode', mode);
     } catch {}
     this.resetTouchInputs();
-    if (mode === 'straight' && this.player) {
-      this.player.aimAngle = 0;
-      this.player.facing = 1;
-      const activeTank =
-        this.player.inTankId !== null ? this.tanks.find((t) => t.id === this.player.inTankId) ?? null : null;
-      if (activeTank) {
-        activeTank.turretAngle = 0;
-        activeTank.facing = 1;
-      }
-    }
     this.pushHud(true);
   }
 
   public toggleControlMode(): void {
-    this.setControlMode(this.controlMode === 'straight' ? 'free' : 'straight');
+    this.setControlMode(this.controlMode === 'touch_aim' ? 'twin_stick' : 'touch_aim');
+  }
+
+  public setTouchAimPoint(active: boolean, clientX = 0, clientY = 0): void {
+    this.isTouchInput = true;
+    this.sound.unlock();
+    if (!active || this.controlMode !== 'touch_aim' || this.phase !== 'playing' || !this.player.alive) {
+      this.touchPointActive = false;
+      return;
+    }
+    if (!this.touchPointActive) {
+      this.touchTapQueued = true;
+    }
+    const rect = this.canvas.getBoundingClientRect();
+    const safeScale = this.scale || 1;
+    this.touchPointScreenX = (clientX - rect.left) / safeScale;
+    this.touchPointScreenY = (clientY - rect.top) / safeScale;
+    this.touchPointActive = true;
   }
 
   public setTouchFire(firing: boolean): void {
@@ -316,7 +329,7 @@ export class GameEngine {
     this.isTouchInput = true;
     this.sound.unlock();
     this.touchFiring = firing;
-    if (this.controlMode === 'free') {
+    if (this.controlMode === 'twin_stick') {
       this.touchAimDragging = firing && dragging;
       if (dragging && Math.hypot(aimX, aimY) > 0.04) {
         this.touchAimX = aimX;
@@ -335,23 +348,13 @@ export class GameEngine {
     this.isTouchInput = true;
     this.sound.unlock();
     if (this.phase !== 'playing' || !this.player.alive || this.player.inTankId !== null) return;
-    if (this.controlMode === 'straight') {
-      this.tryThrowStraightGrenade();
-    } else {
-      this.trySmartLobGrenade();
-    }
+    this.trySmartLobGrenade();
   }
 
   public setTouchFragAim(active: boolean, dragging: boolean, nx = 0, ny = 0): void {
     this.isTouchInput = true;
     this.sound.unlock();
-    if (
-      this.controlMode !== 'free' ||
-      !active ||
-      this.phase !== 'playing' ||
-      !this.player.alive ||
-      this.player.inTankId !== null
-    ) {
+    if (!active || this.phase !== 'playing' || !this.player.alive || this.player.inTankId !== null) {
       this.grenadeAiming = false;
       this.touchFragDragging = false;
       return;
@@ -373,11 +376,6 @@ export class GameEngine {
     this.grenadeAiming = false;
     this.touchFragDragging = false;
     if (this.phase !== 'playing' || !this.player.alive || this.player.inTankId !== null) return;
-
-    if (this.controlMode === 'straight') {
-      this.tryThrowStraightGrenade();
-      return;
-    }
 
     if (wasDragged) {
       const target = this.computeTouchGrenadeTarget(nx, ny);
@@ -564,6 +562,8 @@ export class GameEngine {
     this.touchMoveY = 0;
     this.touchFiring = false;
     this.touchAimDragging = false;
+    this.touchPointActive = false;
+    this.touchTapQueued = false;
     this.touchCoax = false;
     this.combatStrafeTimer = 0;
     this.grenadeAiming = false;
@@ -855,18 +855,10 @@ export class GameEngine {
         this.tryToggleTank();
       } else if (e.code === 'KeyG') {
         if (this.player.inTankId === null && this.player.grenades > 0 && this.player.grenadeCooldown <= 0) {
-          if (this.controlMode === 'straight') {
-            this.tryThrowStraightGrenade();
-          } else {
-            this.grenadeAiming = true;
-          }
+          this.grenadeAiming = true;
         }
-      } else if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+      } else if (e.code === 'ShiftLeft' || e.code === 'ShiftRight' || e.code === 'Space') {
         if (this.player.inTankId === null) {
-          this.tryDodgeRoll();
-        }
-      } else if (e.code === 'Space') {
-        if (this.controlMode === 'free' && this.player.inTankId === null) {
           this.tryDodgeRoll();
         }
       } else if (e.code === 'Digit1') {
@@ -933,11 +925,7 @@ export class GameEngine {
           this.player.grenades > 0 &&
           this.player.grenadeCooldown <= 0
         ) {
-          if (this.controlMode === 'straight') {
-            this.tryThrowStraightGrenade();
-          } else {
-            this.grenadeAiming = true;
-          }
+          this.grenadeAiming = true;
         }
       }
     });
@@ -1380,138 +1368,194 @@ export class GameEngine {
     const inTank = activeTank !== null;
     const originX = activeTank ? activeTank.x + activeTank.facing * -4 : p.x;
     const originY = inTank ? p.y - 44 : p.y - 28;
-    const isStraight = this.controlMode === 'straight';
+    const isTouchDirect = this.isTouchInput && this.controlMode === 'touch_aim';
+    const touchDirectFiring = isTouchDirect && (this.touchPointActive || this.touchTapQueued);
+    this.touchTapQueued = false;
 
-    // Firing inputs: LMB on desktop (+ Space on foot in Straight mode) or mobile FIRE button
-    const wantFire = this.mouseDownLeft || this.touchFiring || (isStraight && !inTank && this.keys.has('Space'));
+    // Firing inputs: LMB on desktop, direct battlefield touch in Touch-to-Shoot, or FIRE stick in Twin-Stick
+    const wantFire = this.mouseDownLeft || touchDirectFiring || (this.controlMode === 'twin_stick' && this.touchFiring);
     const wantCoax = this.mouseDownRight || this.keys.has('Space') || this.touchCoax;
 
-    let targetAimAngle = isStraight ? 0 : p.aimAngle;
+    let targetAimAngle = p.aimAngle;
     this.lockedTargetId = null;
     this.lockedTargetPos = null;
     this.isAutoLocked = false;
 
-    if (!isStraight) {
-      // Post-fire Combat Strafe grace window so rapid tap-firing while kiting never spins you backward!
-      if (this.isTouchInput && (this.touchFiring || (inTank && this.touchCoax))) {
-        this.combatStrafeTimer = 0.65;
-      } else {
-        this.combatStrafeTimer = Math.max(0, this.combatStrafeTimer - dt);
+    // Post-fire Combat Strafe grace window so rapid tap-firing while kiting never spins you backward!
+    if (this.isTouchInput && (touchDirectFiring || this.touchFiring || (inTank && this.touchCoax))) {
+      this.combatStrafeTimer = isTouchDirect ? 0.55 : 0.65;
+    } else {
+      this.combatStrafeTimer = Math.max(0, this.combatStrafeTimer - dt);
+    }
+
+    if (!this.isTouchInput) {
+      // Desktop: Instant 1:1 mouse aim + subtle cursor-space chest magnetism when hovering an enemy
+      const worldMouseX = this.cameraX + this.mouseScreenX;
+      targetAimAngle = Math.atan2(this.mouseScreenY - originY, worldMouseX - originX);
+
+      if (this.aimAssistEnabled) {
+        const maxRange = (inTank ? 880 : wep.range) * 1.15;
+        let bestCursorEnemy: SoldierEntity | null = null;
+        let bestCursorDist = Infinity;
+
+        for (const s of this.soldiers) {
+          if (s.faction !== 'enemy' || s.hp <= 0) continue;
+          const aimY = this.getSoldierAimY(s);
+          if (Math.hypot(s.x - originX, aimY - originY) > maxRange) continue;
+          const captureR = UNIT_STATS[s.kind].radius + 26;
+          const cDist = Math.hypot(s.x - worldMouseX, aimY - this.mouseScreenY);
+          if (cDist <= captureR && cDist < bestCursorDist) {
+            bestCursorDist = cDist;
+            bestCursorEnemy = s;
+          }
+        }
+
+        if (bestCursorEnemy) {
+          const aimY = this.getSoldierAimY(bestCursorEnemy);
+          const captureR = UNIT_STATS[bestCursorEnemy.kind].radius + 26;
+          this.lockedTargetId = bestCursorEnemy.id;
+          this.lockedTargetPos = {
+            x: bestCursorEnemy.x,
+            y: aimY,
+            isBoss: Boolean(UNIT_STATS[bestCursorEnemy.kind].isBoss),
+          };
+          const exactAng = Math.atan2(aimY - originY, bestCursorEnemy.x - originX);
+          const angDiff = Math.atan2(Math.sin(exactAng - targetAimAngle), Math.cos(exactAng - targetAimAngle));
+          const pull = 0.55 + 0.3 * (1 - bestCursorDist / captureR);
+          targetAimAngle += angDiff * pull;
+        }
+      }
+    } else if (touchDirectFiring) {
+      // Mobile Touch-to-Shoot: Aim & fire directly at the player's fingertip on the battlefield!
+      const worldTouchX = this.cameraX + this.touchPointScreenX;
+      const worldTouchY = this.touchPointScreenY;
+      const dx = worldTouchX - originX;
+      const dy = worldTouchY - originY;
+      if (Math.hypot(dx, dy) > 10) {
+        targetAimAngle = Math.atan2(dy, dx);
       }
 
-      if (!this.isTouchInput) {
-        // Desktop: Instant 1:1 mouse aim + subtle cursor-space chest magnetism when hovering an enemy
-        const worldMouseX = this.cameraX + this.mouseScreenX;
-        targetAimAngle = Math.atan2(this.mouseScreenY - originY, worldMouseX - originX);
+      if (this.aimAssistEnabled) {
+        const maxRange = (inTank ? 920 : wep.range) * 1.18;
+        let bestTouchEnemy: SoldierEntity | null = null;
+        let bestTouchDist = Infinity;
 
-        if (this.aimAssistEnabled) {
-          const maxRange = (inTank ? 880 : wep.range) * 1.15;
-          let bestCursorEnemy: SoldierEntity | null = null;
-          let bestCursorDist = Infinity;
-
-          for (const s of this.soldiers) {
-            if (s.faction !== 'enemy' || s.hp <= 0) continue;
-            const aimY = this.getSoldierAimY(s);
-            if (Math.hypot(s.x - originX, aimY - originY) > maxRange) continue;
-            const captureR = UNIT_STATS[s.kind].radius + 26;
-            const cDist = Math.hypot(s.x - worldMouseX, aimY - this.mouseScreenY);
-            if (cDist <= captureR && cDist < bestCursorDist) {
-              bestCursorDist = cDist;
-              bestCursorEnemy = s;
-            }
-          }
-
-          if (bestCursorEnemy) {
-            const aimY = this.getSoldierAimY(bestCursorEnemy);
-            const captureR = UNIT_STATS[bestCursorEnemy.kind].radius + 26;
-            this.lockedTargetId = bestCursorEnemy.id;
-            this.lockedTargetPos = {
-              x: bestCursorEnemy.x,
-              y: aimY,
-              isBoss: Boolean(UNIT_STATS[bestCursorEnemy.kind].isBoss),
-            };
-            const exactAng = Math.atan2(aimY - originY, bestCursorEnemy.x - originX);
-            const angDiff = Math.atan2(Math.sin(exactAng - targetAimAngle), Math.cos(exactAng - targetAimAngle));
-            const pull = 0.55 + 0.3 * (1 - bestCursorDist / captureR);
-            targetAimAngle += angDiff * pull;
+        for (const s of this.soldiers) {
+          if (s.faction !== 'enemy' || s.hp <= 0) continue;
+          const aimY = this.getSoldierAimY(s);
+          if (Math.hypot(s.x - originX, aimY - originY) > maxRange) continue;
+          const captureR = UNIT_STATS[s.kind].radius + 36;
+          const cDist = Math.hypot(s.x - worldTouchX, aimY - worldTouchY);
+          if (cDist <= captureR && cDist < bestTouchDist) {
+            bestTouchDist = cDist;
+            bestTouchEnemy = s;
           }
         }
-      } else if (this.touchAimDragging) {
-        // Mobile Right-Stick Manual Drag Override: direct 360° skillshot aim
-        const yScale = inTank ? 0.82 : 0.88;
-        targetAimAngle = Math.atan2(this.touchAimY * yScale, this.touchAimX);
 
-        if (this.aimAssistEnabled) {
-          const assistTarget = this.getAimAssistTarget(
-            originX,
-            originY,
-            targetAimAngle,
-            AIM_ASSIST_CONFIG.maxRange,
-            AIM_ASSIST_CONFIG.coneAngle
-          );
-          if (assistTarget) {
-            const aimY = this.getSoldierAimY(assistTarget);
-            this.lockedTargetId = assistTarget.id;
-            this.lockedTargetPos = {
-              x: assistTarget.x,
-              y: aimY,
-              isBoss: Boolean(UNIT_STATS[assistTarget.kind].isBoss),
-            };
-            const targetAng = Math.atan2(aimY - originY, assistTarget.x - originX);
-            const angDiff = Math.atan2(Math.sin(targetAng - targetAimAngle), Math.cos(targetAng - targetAimAngle));
-            const pull = AIM_ASSIST_CONFIG.magneticPull * (1 - Math.abs(angDiff) / AIM_ASSIST_CONFIG.coneAngle);
-            targetAimAngle += angDiff * pull;
+        if (bestTouchEnemy) {
+          const aimY = this.getSoldierAimY(bestTouchEnemy);
+          const captureR = UNIT_STATS[bestTouchEnemy.kind].radius + 36;
+          this.lockedTargetId = bestTouchEnemy.id;
+          this.lockedTargetPos = {
+            x: bestTouchEnemy.x,
+            y: aimY,
+            isBoss: Boolean(UNIT_STATS[bestTouchEnemy.kind].isBoss),
+          };
+          const exactAng = Math.atan2(aimY - originY, bestTouchEnemy.x - originX);
+          const angDiff = Math.atan2(Math.sin(exactAng - targetAimAngle), Math.cos(exactAng - targetAimAngle));
+          const pull = 0.68 + 0.32 * (1 - bestTouchDist / captureR);
+          targetAimAngle += angDiff * pull;
+        } else if (this.enemyBarracks && !this.enemyBarracks.destroyed) {
+          const eb = this.enemyBarracks;
+          const bx = eb.x + 8;
+          const by = eb.y - 36;
+          if (Math.hypot(bx - worldTouchX, by - worldTouchY) <= 74 && Math.hypot(bx - originX, by - originY) <= maxRange) {
+            this.lockedTargetPos = { x: bx, y: by, isBoss: true };
+            targetAimAngle = Math.atan2(by - originY, bx - originX);
           }
         }
-      } else if (wantFire || (inTank && wantCoax) || this.combatStrafeTimer > 0) {
-        // Mobile Smart Auto-Lock + Combat Strafe: lock onto highest-threat enemy while kiting freely!
-        const lock = this.findSmartLockTarget(
+      }
+    } else if (this.controlMode === 'twin_stick' && this.touchAimDragging) {
+      // Mobile Twin-Stick Manual Drag Override: direct 360° skillshot aim
+      const yScale = inTank ? 0.82 : 0.88;
+      targetAimAngle = Math.atan2(this.touchAimY * yScale, this.touchAimX);
+
+      if (this.aimAssistEnabled) {
+        const assistTarget = this.getAimAssistTarget(
           originX,
           originY,
-          inTank ? 880 : wep.range,
-          inTank ? 980 : wep.speed,
-          inTank || wep.explosiveRadius > 0
+          targetAimAngle,
+          AIM_ASSIST_CONFIG.maxRange,
+          AIM_ASSIST_CONFIG.coneAngle
         );
-        if (lock) {
-          targetAimAngle = lock.angle;
-          this.lockedTargetId = lock.id;
-          this.lockedTargetPos = { x: lock.x, y: lock.y, isBoss: lock.isBoss };
-          this.isAutoLocked = true;
-        } else if (this.enemyBarracks && !this.enemyBarracks.destroyed && this.enemyBarracks.x > p.x) {
-          if (Math.cos(targetAimAngle) < 0.2) {
-            targetAimAngle = 0;
-          }
+        if (assistTarget) {
+          const aimY = this.getSoldierAimY(assistTarget);
+          this.lockedTargetId = assistTarget.id;
+          this.lockedTargetPos = {
+            x: assistTarget.x,
+            y: aimY,
+            isBoss: Boolean(UNIT_STATS[assistTarget.kind].isBoss),
+          };
+          const targetAng = Math.atan2(aimY - originY, assistTarget.x - originX);
+          const angDiff = Math.atan2(Math.sin(targetAng - targetAimAngle), Math.cos(targetAng - targetAimAngle));
+          const pull = AIM_ASSIST_CONFIG.magneticPull * (1 - Math.abs(angDiff) / AIM_ASSIST_CONFIG.coneAngle);
+          targetAimAngle += angDiff * pull;
         }
-      } else if (this.grenadeAiming && this.touchFragDragging) {
-        targetAimAngle = Math.atan2(this.touchFragY * 0.85, this.touchFragX);
-      } else if (mag > 0.14) {
-        const yScale = inTank ? 0.72 : 0.78;
-        targetAimAngle = Math.atan2(moveY * yScale, moveX);
-        if (this.aimAssistEnabled) {
-          const assistTarget = this.getAimAssistTarget(
-            originX,
-            originY,
-            targetAimAngle,
-            AIM_ASSIST_CONFIG.maxRange,
-            AIM_ASSIST_CONFIG.coneAngle
-          );
-          if (assistTarget) {
-            const aimY = this.getSoldierAimY(assistTarget);
-            this.lockedTargetId = assistTarget.id;
-            this.lockedTargetPos = {
-              x: assistTarget.x,
-              y: aimY,
-              isBoss: Boolean(UNIT_STATS[assistTarget.kind].isBoss),
-            };
-            const targetAng = Math.atan2(aimY - originY, assistTarget.x - originX);
-            const angDiff = Math.atan2(Math.sin(targetAng - targetAimAngle), Math.cos(targetAng - targetAimAngle));
-            targetAimAngle += angDiff * AIM_ASSIST_CONFIG.magneticPull;
-          }
+      }
+    } else if (this.grenadeAiming && this.touchFragDragging) {
+      targetAimAngle = Math.atan2(this.touchFragY * 0.85, this.touchFragX);
+    } else if (
+      (this.controlMode === 'twin_stick' && (wantFire || (inTank && wantCoax) || this.combatStrafeTimer > 0)) ||
+      (isTouchDirect && inTank && wantCoax)
+    ) {
+      // Mobile Smart Auto-Lock + Combat Strafe (Twin-Stick fire/strafe, or Tank MG button without touching battlefield)
+      const lock = this.findSmartLockTarget(
+        originX,
+        originY,
+        inTank ? 880 : wep.range,
+        inTank ? 980 : wep.speed,
+        inTank || wep.explosiveRadius > 0
+      );
+      if (lock) {
+        targetAimAngle = lock.angle;
+        this.lockedTargetId = lock.id;
+        this.lockedTargetPos = { x: lock.x, y: lock.y, isBoss: lock.isBoss };
+        this.isAutoLocked = true;
+      } else if (this.enemyBarracks && !this.enemyBarracks.destroyed && this.enemyBarracks.x > p.x) {
+        if (Math.cos(targetAimAngle) < 0.2) {
+          targetAimAngle = 0;
+        }
+      }
+    } else if (isTouchDirect && this.combatStrafeTimer > 0) {
+      // Brief kiting grace after lifting finger in Touch-to-Shoot so soldier holds firing stance
+      targetAimAngle = p.aimAngle;
+    } else if (mag > 0.14) {
+      const yScale = inTank ? 0.72 : 0.78;
+      targetAimAngle = Math.atan2(moveY * yScale, moveX);
+      if (this.aimAssistEnabled) {
+        const assistTarget = this.getAimAssistTarget(
+          originX,
+          originY,
+          targetAimAngle,
+          AIM_ASSIST_CONFIG.maxRange,
+          AIM_ASSIST_CONFIG.coneAngle
+        );
+        if (assistTarget) {
+          const aimY = this.getSoldierAimY(assistTarget);
+          this.lockedTargetId = assistTarget.id;
+          this.lockedTargetPos = {
+            x: assistTarget.x,
+            y: aimY,
+            isBoss: Boolean(UNIT_STATS[assistTarget.kind].isBoss),
+          };
+          const targetAng = Math.atan2(aimY - originY, assistTarget.x - originX);
+          const angDiff = Math.atan2(Math.sin(targetAng - targetAimAngle), Math.cos(targetAng - targetAimAngle));
+          targetAimAngle += angDiff * AIM_ASSIST_CONFIG.magneticPull;
         }
       }
     }
 
-    const desktopInstantAim = !this.isTouchInput && this.aimWeightSetting !== 'heavy';
+    const instantAim = (!this.isTouchInput || touchDirectFiring) && this.aimWeightSetting !== 'heavy';
     const touchTurnSpeed =
       this.aimWeightSetting === 'responsive' ? 48 : this.aimWeightSetting === 'heavy' ? 20 : 36;
 
@@ -1524,23 +1568,18 @@ export class GameEngine {
       tank.y = Math.max(PLAYABLE_Y_MIN + 10, Math.min(PLAYABLE_Y_MAX - 8, tank.y + tank.vy * dt));
 
       const speed = Math.hypot(tank.vx, tank.vy);
-      if (isStraight) {
-        tank.facing = 1;
-        tank.turretAngle = 0;
+      if (wantFire || wantCoax || this.combatStrafeTimer > 0 || !this.isTouchInput) {
+        tank.facing = Math.cos(targetAimAngle) >= 0 ? 1 : -1;
+      } else if (Math.abs(tank.vx) > 8) {
+        tank.facing = tank.vx >= 0 ? 1 : -1;
+      }
+      if (instantAim) {
+        tank.turretAngle = targetAimAngle;
       } else {
-        if (wantFire || wantCoax || this.combatStrafeTimer > 0 || !this.isTouchInput) {
-          tank.facing = Math.cos(targetAimAngle) >= 0 ? 1 : -1;
-        } else if (Math.abs(tank.vx) > 8) {
-          tank.facing = tank.vx >= 0 ? 1 : -1;
-        }
-        if (desktopInstantAim) {
-          tank.turretAngle = targetAimAngle;
-        } else {
-          const rate = !this.isTouchInput ? 26 : touchTurnSpeed * 0.85;
-          const diff = Math.atan2(Math.sin(targetAimAngle - tank.turretAngle), Math.cos(targetAimAngle - tank.turretAngle));
-          const maxStep = rate * dt;
-          tank.turretAngle += Math.max(-maxStep, Math.min(maxStep, diff));
-        }
+        const rate = !this.isTouchInput ? 26 : touchDirectFiring ? 24 : touchTurnSpeed * 0.85;
+        const diff = Math.atan2(Math.sin(targetAimAngle - tank.turretAngle), Math.cos(targetAimAngle - tank.turretAngle));
+        const maxStep = rate * dt;
+        tank.turretAngle += Math.max(-maxStep, Math.min(maxStep, diff));
       }
 
       if (speed > 10) {
@@ -1571,12 +1610,14 @@ export class GameEngine {
       p.aimAngle = tank.turretAngle;
       p.facing = tank.facing;
 
-      if (isStraight) {
-        this.mouseScreenX = p.x - this.cameraX + 310;
-        this.mouseScreenY = originY;
-      } else if (this.isTouchInput) {
-        this.mouseScreenX = p.x - this.cameraX + Math.cos(p.aimAngle) * 310;
-        this.mouseScreenY = originY + Math.sin(p.aimAngle) * 310;
+      if (this.isTouchInput) {
+        if (touchDirectFiring) {
+          this.mouseScreenX = this.touchPointScreenX;
+          this.mouseScreenY = this.touchPointScreenY;
+        } else {
+          this.mouseScreenX = p.x - this.cameraX + Math.cos(p.aimAngle) * 310;
+          this.mouseScreenY = originY + Math.sin(p.aimAngle) * 310;
+        }
       }
 
       // Tank ROADKILL crushing enemy infantry!
@@ -1602,13 +1643,14 @@ export class GameEngine {
         }
       }
 
-      // Fire 75mm Main Cannon (Left Click or Mobile FIRE Button)
+      // Fire 75mm Main Cannon (Left Click, Direct Touch, or Mobile FIRE Stick)
       if (wantFire && tank.cannonCooldown <= 0) {
         this.fireTankCannon(tank);
       }
 
-      // Fire Coaxial Machine Gun (Right Click, Space, or Touch MG)
-      if (wantCoax && tank.coaxCooldown <= 0) {
+      // Fire Coaxial Machine Gun (Right Click, Space, Touch MG, or auto-sweep between cannon shells in Touch-to-Shoot)
+      const wantTankCoax = wantCoax || (touchDirectFiring && tank.cannonCooldown < 0.85);
+      if (wantTankCoax && tank.coaxCooldown <= 0) {
         this.fireTankCoax(tank);
       }
 
@@ -1628,20 +1670,15 @@ export class GameEngine {
     p.x = Math.max(ALLIED_CAMP_X + 36, Math.min(this.worldWidth - 135, p.x + p.vx * dt));
     p.y = Math.max(PLAYABLE_Y_MIN, Math.min(PLAYABLE_Y_MAX, p.y + p.vy * dt));
 
-    if (isStraight) {
-      p.aimAngle = 0;
-      p.facing = 1;
+    if (instantAim) {
+      p.aimAngle = targetAimAngle;
     } else {
-      if (desktopInstantAim) {
-        p.aimAngle = targetAimAngle;
-      } else {
-        const rate = !this.isTouchInput ? 32 : touchTurnSpeed;
-        const diff = Math.atan2(Math.sin(targetAimAngle - p.aimAngle), Math.cos(targetAimAngle - p.aimAngle));
-        const maxStep = rate * dt;
-        p.aimAngle += Math.max(-maxStep, Math.min(maxStep, diff));
-      }
-      p.facing = Math.cos(p.aimAngle) >= 0 ? 1 : -1;
+      const rate = !this.isTouchInput ? 32 : touchDirectFiring ? 28 : touchTurnSpeed;
+      const diff = Math.atan2(Math.sin(targetAimAngle - p.aimAngle), Math.cos(targetAimAngle - p.aimAngle));
+      const maxStep = rate * dt;
+      p.aimAngle += Math.max(-maxStep, Math.min(maxStep, diff));
     }
+    p.facing = Math.cos(p.aimAngle) >= 0 ? 1 : -1;
 
     // Authentic backpedal boot stride when retreating while firing forward!
     const speed = Math.hypot(p.vx, p.vy);
@@ -1651,13 +1688,15 @@ export class GameEngine {
     }
 
     // Keep aim coordinates synced
-    if (isStraight) {
-      this.mouseScreenX = p.x - this.cameraX + Math.min(300, wep.range * 0.44);
-      this.mouseScreenY = originY;
-    } else if (this.isTouchInput) {
-      const crosshairDist = Math.min(300, wep.range * 0.44);
-      this.mouseScreenX = p.x - this.cameraX + Math.cos(p.aimAngle) * crosshairDist;
-      this.mouseScreenY = originY + Math.sin(p.aimAngle) * crosshairDist;
+    if (this.isTouchInput) {
+      if (touchDirectFiring) {
+        this.mouseScreenX = this.touchPointScreenX;
+        this.mouseScreenY = this.touchPointScreenY;
+      } else {
+        const crosshairDist = Math.min(300, wep.range * 0.44);
+        this.mouseScreenX = p.x - this.cameraX + Math.cos(p.aimAngle) * crosshairDist;
+        this.mouseScreenY = originY + Math.sin(p.aimAngle) * crosshairDist;
+      }
     }
 
     // Firing active modern weapon
@@ -1913,37 +1952,6 @@ export class GameEngine {
     };
   }
 
-  private tryThrowStraightGrenade(): void {
-    const p = this.player;
-    if (p.grenades <= 0 || p.grenadeCooldown > 0) return;
-
-    // Throw grenade straight forward in current lane
-    let targetX = Math.min(this.worldWidth - 60, p.x + 320);
-
-    // If enemies are ahead in this lane, lob directly into them
-    let bestScore = -Infinity;
-    for (const s of this.soldiers) {
-      if (s.faction !== 'enemy' || s.hp <= 0) continue;
-      const dx = s.x - p.x;
-      const dy = Math.abs(s.y - p.y);
-      if (dx < 70 || dx > 470 || dy > 60) continue;
-      const score = (500 - dx) + (60 - dy) * 2;
-      if (score > bestScore) {
-        bestScore = score;
-        targetX = s.x;
-      }
-    }
-
-    if (bestScore === -Infinity && this.enemyBarracks && !this.enemyBarracks.destroyed) {
-      const eb = this.enemyBarracks;
-      if (eb.x > p.x && eb.x - p.x <= 490 && Math.abs(eb.y - p.y) <= 80) {
-        targetX = eb.x - 10;
-      }
-    }
-
-    this.tryThrowGrenadeAt(targetX, p.y);
-  }
-
   private trySmartLobGrenade(): void {
     const p = this.player;
     if (p.grenades <= 0 || p.grenadeCooldown > 0) return;
@@ -2002,10 +2010,10 @@ export class GameEngine {
     this.sound.playDodge();
 
     const clampedY = Math.max(PLAYABLE_Y_MIN, Math.min(PLAYABLE_Y_MAX, targetY));
-    const dx = this.controlMode === 'straight' ? Math.max(20, targetX - p.x) : targetX - p.x;
-    const dy = this.controlMode === 'straight' ? 0 : clampedY - p.y;
+    const dx = targetX - p.x;
+    const dy = clampedY - p.y;
     const dist = Math.min(470, Math.hypot(dx, dy));
-    const ang = this.controlMode === 'straight' ? 0 : Math.atan2(dy, dx);
+    const ang = Math.atan2(dy, dx);
     p.facing = Math.cos(ang) >= 0 ? 1 : -1;
 
     // Exact bounce-settle integral (0.859s air flight + 0.56x post-bounce skid = 1.03s) so grenade detonates on bullseye!
@@ -3381,19 +3389,44 @@ export class GameEngine {
     const originBaseX = activeTank ? activeTank.x + activeTank.facing * -4 : this.player.x;
     const originY = activeTank ? this.player.y - 44 : this.player.y - 28;
     const activeWep = WEAPONS[this.player.activeWeapon];
-    const laserRange = activeTank ? 620 : Math.min(500, activeWep.range * 0.75);
-    const isStraight = this.controlMode === 'straight';
+    const maxLaserRange = activeTank ? 620 : Math.min(500, activeWep.range * 0.78);
 
     const showGrenadePreview =
-      !isStraight &&
       this.phase === 'playing' &&
       this.player.alive &&
       this.player.inTankId === null &&
       this.grenadeAiming &&
       this.player.grenades > 0;
     const grenadeTarget = showGrenadePreview ? this.getGrenadePreviewTarget() : null;
-    const aimAngle = isStraight ? 0 : this.player.aimAngle;
+    const aimAngle = this.player.aimAngle;
     const muzzleDist = activeTank ? 58 : activeWep.muzzleOffset;
+    const muzzleX = originBaseX + Math.cos(aimAngle) * muzzleDist;
+    const muzzleY = originY + Math.sin(aimAngle) * muzzleDist;
+
+    const touchDirectActive =
+      this.phase === 'playing' &&
+      this.player.alive &&
+      this.isTouchInput &&
+      this.controlMode === 'touch_aim' &&
+      this.touchPointActive &&
+      !showGrenadePreview;
+
+    let laserRange = maxLaserRange;
+    if (touchDirectActive) {
+      const worldTouchX = this.cameraX + this.touchPointScreenX;
+      const worldTouchY = this.touchPointScreenY;
+      const distFromMuzzle = Math.hypot(worldTouchX - muzzleX, worldTouchY - muzzleY);
+      const weaponCap = activeTank ? 860 : activeWep.range;
+      laserRange = Math.max(40, Math.min(weaponCap, distFromMuzzle));
+    }
+
+    const showAimLaser =
+      this.phase === 'playing' &&
+      this.player.alive &&
+      !showGrenadePreview &&
+      (this.controlMode === 'touch_aim'
+        ? touchDirectActive || this.mouseDownLeft || (activeTank !== null && this.touchCoax)
+        : this.isTouchInput || this.mouseDownLeft);
 
     const state: RenderState = {
       time: this.time,
@@ -3423,25 +3456,19 @@ export class GameEngine {
       floatingTexts: this.floatingTexts,
       scenery: this.scenery,
       clouds: this.clouds,
-      showCrosshair: !isStraight && this.phase === 'playing' && !this.isTouchInput,
+      showCrosshair: this.phase === 'playing' && !this.isTouchInput,
       recoilBloom: this.recoilBloom,
-      showAimLaser: isStraight
-        ? this.phase === 'playing' && this.player.alive
-        : this.phase === 'playing' && (this.isTouchInput || this.mouseDownLeft) && !showGrenadePreview,
-      aimLaserOriginX: originBaseX + Math.cos(aimAngle) * muzzleDist,
-      aimLaserOriginY: originY + Math.sin(aimAngle) * muzzleDist,
+      showAimLaser,
+      aimLaserOriginX: muzzleX,
+      aimLaserOriginY: muzzleY,
       aimLaserAngle: aimAngle,
       aimLaserRange: laserRange,
       aimLaserSpread: activeTank ? 0 : activeWep.spread,
       aimLaserColor: activeTank ? '#ffdf59' : activeWep.tracerColor,
-      aimLaserFired:
-        this.touchFiring ||
-        this.touchCoax ||
-        this.mouseDownLeft ||
-        (isStraight && !activeTank && this.keys.has('Space')),
-      lockedTargetId: isStraight ? null : this.lockedTargetId,
-      isAutoLocked: !isStraight && this.phase === 'playing' && this.isAutoLocked,
-      lockedTargetPos: !isStraight && this.phase === 'playing' ? this.lockedTargetPos : null,
+      aimLaserFired: touchDirectActive || this.touchFiring || this.touchCoax || this.mouseDownLeft,
+      lockedTargetId: this.lockedTargetId,
+      isAutoLocked: this.phase === 'playing' && this.isAutoLocked,
+      lockedTargetPos: this.phase === 'playing' ? this.lockedTargetPos : null,
       grenadePreview: grenadeTarget
         ? {
             startX: this.player.x,
@@ -3449,6 +3476,14 @@ export class GameEngine {
             targetX: grenadeTarget.x,
             targetY: grenadeTarget.y,
             radius: 128,
+          }
+        : null,
+      touchReticle: touchDirectActive
+        ? {
+            x: this.touchPointScreenX,
+            y: this.touchPointScreenY,
+            firing: true,
+            inTank: activeTank !== null,
           }
         : null,
     };
@@ -3546,11 +3581,11 @@ export class GameEngine {
       aimAssist: this.aimAssistEnabled,
       nextWeaponId: nextWep,
       touchAimMode:
-        this.controlMode === 'straight' || !this.touchFiring
-          ? 'idle'
-          : this.touchAimDragging
+        this.controlMode === 'twin_stick' && this.touchFiring
+          ? this.touchAimDragging
             ? 'manual'
-            : 'auto',
+            : 'auto'
+          : 'idle',
     });
   }
 }

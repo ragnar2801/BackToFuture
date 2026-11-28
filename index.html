@@ -98,7 +98,7 @@
             </div>
           </div>
 
-          <!-- Right Action Buttons + Pure FIRE Button (No stick control) -->
+          <!-- Right Action Buttons + Hybrid FIRE Stick (visible in Twin-Stick mode) -->
           <div id="touch-right-zone" class="touch-right-zone">
             <div class="touch-action-row">
               <button id="touch-btn-swap" class="touch-btn swap-btn" type="button" title="Quick Swap Weapon">
@@ -107,7 +107,7 @@
               </button>
               <button id="touch-btn-tank" class="touch-btn tank-btn hidden" type="button">TANK</button>
               <button id="touch-btn-roll" class="touch-btn roll-btn" type="button">ROLL</button>
-              <button id="touch-btn-frag" class="touch-btn frag-btn" type="button" title="Lob Frag Grenade">
+              <button id="touch-btn-frag" class="touch-btn frag-btn" type="button" title="Tap: Auto-Lob • Drag: Aim Ring">
                 <span id="touch-frag-label">FRAG</span>
                 <small id="touch-frag-count">4</small>
               </button>
@@ -116,7 +116,7 @@
               id="touch-btn-fire"
               class="touch-fire-btn"
               type="button"
-              aria-label="Fire Straight Forward"
+              aria-label="Hold to Auto-Lock Fire, Drag to Aim"
             >
               <div id="fire-stick-knob" class="fire-stick-knob">
                 <span id="touch-fire-label" class="fire-btn-label">FIRE</span>
@@ -137,10 +137,10 @@
             <span class="tank-hint"><strong>E</strong> Exit Tank</span>
           </div>
           <div id="controls-strip" class="controls-strip">
-            <span><strong>WASD</strong> Move &amp; Align</span>
-            <span><strong>LMB / Space</strong> Fire Straight</span>
-            <span><strong>RMB / G</strong> Frag Grenade</span>
-            <span><strong>Shift</strong> Dodge Roll</span>
+            <span><strong>WASD</strong> Move &amp; Kite</span>
+            <span><strong>Mouse</strong> 1:1 Aim &amp; Shoot</span>
+            <span><strong>RMB / G</strong> Aim &amp; Lob Grenade</span>
+            <span><strong>Shift / Space</strong> Dodge Roll</span>
             <span><strong>E</strong> Tank</span>
           </div>
         </div>
@@ -168,25 +168,25 @@
             <button id="btn-play" class="primary-btn" type="button">DEPLOY TO BATTLE</button>
             <div id="title-highscore" class="best-pill hidden">BEST: <strong id="title-highscore-val">0</strong></div>
           </div>
-          <div class="title-control-picker" role="group" aria-label="Control Mode">
-            <span class="picker-label">CONTROLS:</span>
+          <div class="title-control-picker" role="group" aria-label="Touch Aim Style">
+            <span class="picker-label">TOUCH AIM:</span>
             <div class="mode-toggle-group">
-              <button id="btn-title-mode-straight" class="mode-toggle-btn active" type="button">STRAIGHT AIM</button>
-              <button id="btn-title-mode-free" class="mode-toggle-btn" type="button">FREE AIM (360°)</button>
+              <button id="btn-title-mode-touch" class="mode-toggle-btn active" type="button">TOUCH TO SHOOT</button>
+              <button id="btn-title-mode-stick" class="mode-toggle-btn" type="button">TWIN-STICK</button>
             </div>
           </div>
           <div id="title-desktop-keys" class="key-grid desktop-keys">
-            <div><kbd>WASD</kbd> Move &amp; Align</div>
-            <div><kbd>LMB</kbd> / <kbd>Space</kbd> Fire Straight</div>
-            <div><kbd>RMB</kbd> / <kbd>G</kbd> Frag Grenade</div>
+            <div><kbd>WASD</kbd> Move &amp; Kite</div>
+            <div><kbd>LMB</kbd> 1:1 Aim &amp; Fire</div>
+            <div><kbd>RMB</kbd> / <kbd>G</kbd> Aim Grenade</div>
             <div><kbd>E</kbd> Enter / Exit Tank</div>
             <div><kbd>1-5</kbd> / <kbd>Scroll</kbd> Weapons</div>
-            <div><kbd>Shift</kbd> Dodge Roll</div>
+            <div><kbd>Shift</kbd> / <kbd>Space</kbd> Dodge Roll</div>
           </div>
           <div id="title-touch-legend" class="touch-legend">
-            <span><strong>Left Stick</strong> Move &amp; Position</span>
-            <span><strong>Fire</strong> Hold to Shoot Straight</span>
-            <span><strong>Frag</strong> Lob Grenade</span>
+            <span><strong>Left Stick</strong> Move &amp; Kite</span>
+            <span><strong>Touch Battlefield</strong> Aim &amp; Auto-Fire</span>
+            <span><strong>Frag</strong> Tap Auto • Drag Ring</span>
           </div>
         </div>
       </section>
@@ -199,14 +199,14 @@
 
           <div class="pause-settings">
             <span class="settings-title">CONTROL SETTINGS</span>
-            <div class="mode-toggle-group full-width" role="group" aria-label="Control Mode">
-              <button id="btn-pause-mode-straight" class="mode-toggle-btn active" type="button">STRAIGHT AIM</button>
-              <button id="btn-pause-mode-free" class="mode-toggle-btn" type="button">FREE AIM (360°)</button>
+            <div class="mode-toggle-group full-width" role="group" aria-label="Touch Aim Style">
+              <button id="btn-pause-mode-touch" class="mode-toggle-btn active" type="button">TOUCH TO SHOOT</button>
+              <button id="btn-pause-mode-stick" class="mode-toggle-btn" type="button">TWIN-STICK</button>
             </div>
             <p id="control-mode-desc" class="settings-desc">
-              Fire strictly straight forward. Use movement to line up shots; pure FIRE button on mobile.
+              Touch &amp; hold anywhere on the battlefield to aim and fire directly at your finger.
             </p>
-            <div id="free-aim-settings" class="settings-row hidden">
+            <div id="free-aim-settings" class="settings-row">
               <button id="btn-toggle-weight" class="setting-btn" type="button" title="Cycle Aim Weight / Inertia">
                 AIM WEIGHT: BALANCED
               </button>

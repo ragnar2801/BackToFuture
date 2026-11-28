@@ -17,20 +17,20 @@ A 2.5D hand-illustrated cartoon battlefield action shooter where a modern soldie
   - **Drivable Battle Tank** (`E` to enter/exit) — 75mm main cannon, coaxial machine gun, and roadkill crushing!
   - **Parachute Supply Crates & Field Medkits** — Random weapons, ammo, tank airdrops, and camp/hero repairs drop dynamically onto the battlefield.
 - **Endless Escalating Difficulty & Scoring**: Every kill earns points amplified by combo streaks, multi-kill callouts, tank crushes, and frontline push bonuses. High scores persist locally.
-- **Desktop & Mobile Ready (2 Control Modes in Settings)**: Switch anytime on the Title screen or Pause menu between **Straight Aim** (forward-only horizontal aim + pure mobile FIRE button; movement lines up shots) and **Free Aim (360°)** (1:1 mouse aim on desktop, hybrid hold-to-auto-lock / drag-to-aim FIRE stick & drag-ring FRAG on mobile, with Aim Weight and Magnetism tuning).
+- **Desktop & Mobile Ready (2 Touch Aim Modes in Settings)**: Crisp `1:1` mouse aim on desktop, plus switchable mobile touch modes on the Title screen or Pause menu: **Touch to Shoot** (touch & hold anywhere on the battlefield to aim & auto-fire directly at your finger with a fingertip reticle and smart enemy snap) and **Twin-Stick** (hybrid corner `FIRE` stick — hold for Smart Auto-Lock or drag for 360° manual aim), both with Aim Weight & Magnetism tuning.
 - **Zero-Dependency Procedural Audio & Canvas Art**: Crisp 2.5D cartoon vector rendering, tactical laser aim guide, and synthesized Web Audio API sound effects.
 
 ## Controls
 
 | Action | Desktop | Mobile (Portrait & Landscape) |
 | --- | --- | --- |
-| Move & Align / Kite / Drive Tank | `WASD` or `Arrow Keys` | Left Virtual Joystick (align lanes or kite freely while firing) |
-| Shoot / Tank Cannon | **Straight Aim**: `Left-Click` or `Space`<br>**Free Aim**: `Mouse` (`1:1` Aim) + `Left-Click` | **Straight Aim**: Pure `FIRE` button (no aim stick)<br>**Free Aim**: Hold `FIRE` for Smart Auto-Lock, or **Drag** to aim |
-| Frag Grenade / Tank Coax MG | **Straight Aim**: `Right-Click` or `G`<br>**Free Aim**: Hold/Release `Right-Click` or `G` (`Space` in Tank) | **Straight Aim**: Tap `FRAG` (straight lane lob)<br>**Free Aim**: Tap `FRAG` (Smart Lob) or **Drag** for Blast Ring (`MG` in Tank) |
+| Move & Kite / Drive Tank | `WASD` or `Arrow Keys` | Left Virtual Joystick (kite backward while firing freely) |
+| Shoot / Tank Cannon | `Mouse` (`1:1` Aim) + `Left-Click` | **Touch to Shoot**: Touch & hold directly on enemies / battlefield to aim & auto-fire (Tank fires 75mm + Coax MG)<br>**Twin-Stick**: Hold `FIRE` for Smart Auto-Lock, or **Drag** to aim 360° |
+| Frag Grenade / Tank Coax MG | Hold/Release `Right-Click` or `G` (`Space` in Tank) | Tap `FRAG` for Smart Lob, or **Drag** to place Blast Ring (`MG` in Tank) |
 | Enter / Exit Tank | `E` | `TANK` / `EXIT` button |
 | Switch Weapons | `1`–`5`, `Q`, or `Mouse Wheel` | `SWAP` button (right thumb) or tap weapon slot on bottom bar |
-| Combat Dodge Roll | `Shift` (`Space` in Free Aim) | `ROLL` button |
-| Pause / Settings / Mute | `P` or `Esc` / `M` | `PAUSE` (Switch Control Mode, Aim Weight & Magnetism) / `SFX` |
+| Combat Dodge Roll | `Shift` or `Space` | `ROLL` button |
+| Pause / Settings / Mute | `P` or `Esc` / `M` | `PAUSE` (Switch Touch Aim Mode, Aim Weight & Magnetism) / `SFX` |
 
 ## Development
 

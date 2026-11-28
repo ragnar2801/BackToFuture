@@ -76,6 +76,12 @@ export interface RenderState {
     targetY: number;
     radius: number;
   } | null;
+  touchReticle: {
+    x: number;
+    y: number;
+    firing: boolean;
+    inTank: boolean;
+  } | null;
 }
 
 interface DrawableItem {
@@ -229,9 +235,19 @@ export class GameRenderer {
     // 9. Offscreen indicators (for parachuting crates, uncrewed tank, or Boss incoming)
     this.drawOffscreenIndicators(ctx, state);
 
-    // 10. Crisp Golden Aiming Crosshair
+    // 10. Crisp Golden Aiming Crosshair / Touch-to-Shoot Reticle
     if (state.showCrosshair) {
       this.drawCrosshair(ctx, state.mouseScreenX, state.mouseScreenY, state.recoilBloom, state.player.inTankId !== null);
+    } else if (state.touchReticle) {
+      this.drawTouchReticle(
+        ctx,
+        state.touchReticle.x,
+        state.touchReticle.y,
+        state.touchReticle.firing,
+        state.touchReticle.inTank,
+        state.recoilBloom,
+        state.time
+      );
     }
 
     ctx.restore();
@@ -2655,6 +2671,71 @@ export class GameRenderer {
       ctx.arc(0, 0, gap + 4, 0, Math.PI * 2);
       ctx.stroke();
     }
+  }
+
+  private drawTouchReticle(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    firing: boolean,
+    inTank: boolean,
+    bloom: number,
+    time: number
+  ): void {
+    ctx.save();
+    ctx.translate(x, y);
+
+    const pulse = 1 + Math.sin(time * 14) * 0.04;
+    const outerR = ((inTank ? 30 : 25) + bloom * 5) * pulse;
+    const tickLen = inTank ? 9 : 7;
+
+    // Soft halo slightly wider than a fingertip so aim stays clearly visible
+    ctx.fillStyle = firing ? 'rgba(255, 214, 72, 0.13)' : 'rgba(255, 236, 130, 0.08)';
+    ctx.beginPath();
+    ctx.arc(0, 0, outerR, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Dark outline for crisp contrast against bright grass/dirt
+    ctx.strokeStyle = 'rgba(18, 18, 14, 0.72)';
+    ctx.lineWidth = 4.2;
+    ctx.beginPath();
+    ctx.arc(0, 0, outerR, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Glowing golden/amber outer ring
+    ctx.strokeStyle = firing ? (inTank ? '#ffba3b' : '#ffe047') : '#f5e27a';
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.arc(0, 0, outerR, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // 4 directional outer ticks pointing inward around the fingertip
+    const drawTicks = () => {
+      ctx.beginPath();
+      ctx.moveTo(-outerR - tickLen, 0);
+      ctx.lineTo(-outerR + 3, 0);
+      ctx.moveTo(outerR - 3, 0);
+      ctx.lineTo(outerR + tickLen, 0);
+      ctx.moveTo(0, -outerR - tickLen);
+      ctx.lineTo(0, -outerR + 3);
+      ctx.moveTo(0, outerR - 3);
+      ctx.lineTo(0, outerR + tickLen);
+      ctx.stroke();
+    };
+    ctx.strokeStyle = 'rgba(18, 18, 14, 0.72)';
+    ctx.lineWidth = 4;
+    drawTicks();
+    ctx.strokeStyle = firing ? '#ff7d38' : '#ffe047';
+    ctx.lineWidth = 2.1;
+    drawTicks();
+
+    // Crisp center dot
+    ctx.fillStyle = '#fff9c4';
+    ctx.beginPath();
+    ctx.arc(0, 0, 2.3, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
   }
 
   private roundRect(

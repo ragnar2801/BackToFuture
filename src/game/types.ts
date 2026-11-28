@@ -22,7 +22,7 @@ export type PickupKind =
 
 export type GamePhase = 'title' | 'playing' | 'paused' | 'gameover';
 
-export type ControlMode = 'straight' | 'free';
+export type ControlMode = 'touch_aim' | 'twin_stick';
 
 export interface WeaponDef {
   id: WeaponId;
