@@ -25,7 +25,7 @@ A 2.5D hand-illustrated cartoon battlefield action shooter where a modern soldie
 | Action | Desktop | Mobile (Portrait & Landscape) |
 | --- | --- | --- |
 | Move & Kite / Drive Tank | `WASD` or `Arrow Keys` | Left Virtual Joystick (kite backward while firing freely) |
-| Shoot / Tank Cannon | `Mouse` (`1:1` Aim) + `Left-Click` | **Touch to Shoot**: Touch & hold directly on enemies / battlefield to aim & auto-fire (Tank fires 75mm + Coax MG)<br>**Twin-Stick**: Hold `FIRE` for Smart Auto-Lock, or **Drag** to aim 360° |
+| Shoot / Tank Cannon | `Mouse` (`1:1` Aim) + `Left-Click` | **Touch to Shoot**: Touch & hold directly on enemies / battlefield to aim & auto-fire (Tank fires 75mm Cannon)<br>**Twin-Stick**: Hold `FIRE` for Smart Auto-Lock, or **Drag** to aim 360° |
 | Frag Grenade / Tank Coax MG | Hold/Release `Right-Click` or `G` (`Space` in Tank) | Tap `FRAG` for Smart Lob, or **Drag** to place Blast Ring (`MG` in Tank) |
 | Enter / Exit Tank | `E` | `TANK` / `EXIT` button |
 | Switch Weapons | `1`–`5`, `Q`, or `Mouse Wheel` | `SWAP` button (right thumb) or tap weapon slot on bottom bar |

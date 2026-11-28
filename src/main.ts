@@ -82,6 +82,7 @@ const goBreakdown = mustGet<HTMLDivElement>('go-breakdown');
 const weaponButtons = new Map<WeaponId, { el: HTMLButtonElement; ammoEl: HTMLSpanElement }>();
 let grenadeAmmoEl: HTMLSpanElement;
 let isInTank = false;
+let onTankStateChanged: (() => void) | null = null;
 let currentControlMode: ControlMode = 'touch_aim';
 
 function detectAndEnableTouchUi(): void {
@@ -316,7 +317,11 @@ function buildWeaponBar(onSelect: (id: WeaponId) => void): void {
 let lastPhase = '';
 
 function renderHud(h: HudSnapshot): void {
+  const wasInTank = isInTank;
   isInTank = h.inTank;
+  if (wasInTank !== isInTank) {
+    onTankStateChanged?.();
+  }
 
   // Overlay switching
   if (h.phase !== lastPhase) {
@@ -739,6 +744,10 @@ const resetFragUi = (cancelOnly: boolean) => {
   } else {
     engine.releaseTouchFrag(wasDragged, nx, ny);
   }
+};
+
+onTankStateChanged = () => {
+  resetFragUi(true);
 };
 
 const updateFragStickFromClient = (clientX: number, clientY: number) => {

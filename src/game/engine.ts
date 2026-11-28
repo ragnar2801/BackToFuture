@@ -1648,9 +1648,8 @@ export class GameEngine {
         this.fireTankCannon(tank);
       }
 
-      // Fire Coaxial Machine Gun (Right Click, Space, Touch MG, or auto-sweep between cannon shells in Touch-to-Shoot)
-      const wantTankCoax = wantCoax || (touchDirectFiring && tank.cannonCooldown < 0.85);
-      if (wantTankCoax && tank.coaxCooldown <= 0) {
+      // Fire Coaxial Machine Gun (Right Click, Space, or Touch MG)
+      if (wantCoax && tank.coaxCooldown <= 0) {
         this.fireTankCoax(tank);
       }
 
@@ -1743,15 +1742,22 @@ export class GameEngine {
     const p = this.player;
     this.grenadeAiming = false;
     this.touchFragDragging = false;
+    this.touchCoax = false;
+    this.touchTapQueued = false;
+    p.spinUp = 0;
+    p.muzzleFlashTimer = 0;
 
     if (p.inTankId !== null) {
       const tank = this.tanks.find((t) => t.id === p.inTankId);
       if (tank) {
         tank.occupied = false;
+        tank.vx = 0;
+        tank.vy = 0;
         p.x = tank.x - tank.facing * 22;
         p.y = Math.min(PLAYABLE_Y_MAX - 10, tank.y + 38);
       }
       p.inTankId = null;
+      p.fireCooldown = Math.max(p.fireCooldown, 0.2);
       p.invulnTimer = 0.35;
       this.sound.playTankToggle(false);
       this.pushHud(true);
@@ -1771,6 +1777,8 @@ export class GameEngine {
     }
     if (nearest) {
       nearest.occupied = true;
+      nearest.cannonCooldown = Math.max(nearest.cannonCooldown, 0.2);
+      nearest.coaxCooldown = Math.max(nearest.coaxCooldown, 0.2);
       p.inTankId = nearest.id;
       p.x = nearest.x;
       p.y = nearest.y;
@@ -1782,6 +1790,7 @@ export class GameEngine {
 
   private firePlayerWeapon(): void {
     const p = this.player;
+    if (p.inTankId !== null) return;
     const wep = WEAPONS[p.activeWeapon];
 
     if (wep.id !== 'pistol' && p.ammo[wep.id] <= 0) {
@@ -2972,6 +2981,9 @@ export class GameEngine {
       // Dramatic tank destruction — safely eject player if inside!
       if (this.player.inTankId === tank.id) {
         this.player.inTankId = null;
+        this.touchCoax = false;
+        this.player.spinUp = 0;
+        this.player.fireCooldown = Math.max(this.player.fireCooldown, 0.2);
         this.player.x = tank.x - 24;
         this.player.y = Math.min(PLAYABLE_Y_MAX - 14, tank.y + 30);
         this.player.invulnTimer = 1.1;
